@@ -1,10 +1,15 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import { server } from './server';
+import * as database from './database';
 
 // Mock fs module
 jest.mock('fs');
 const mockedFs = fs as jest.Mocked<typeof fs>;
+
+// Mock database module
+jest.mock('./database');
+const mockedDatabase = database as jest.Mocked<typeof database>;
 
 describe('Server Module', () => {
   beforeEach(() => {
@@ -277,6 +282,225 @@ describe('Server Module', () => {
       } as unknown as http.ServerResponse;
 
       server.emit('request', req, res);
+    });
+  });
+
+  describe('API Endpoints', () => {
+    describe('GET /api/results', () => {
+      it('should return all benchmark results', (done) => {
+        const mockResults = [
+          {
+            id: 1,
+            model: 'llama2',
+            tokensPerSecond: 45.5,
+            totalTokens: 100,
+            durationSeconds: 2.2,
+            timestamp: '2024-01-15T10:30:00.000Z',
+            success: true
+          }
+        ];
+
+        mockedDatabase.getAllBenchmarkResults.mockReturnValue(mockResults);
+
+        const req = {
+          method: 'GET',
+          url: '/api/results'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            expect(JSON.parse(data)).toEqual(mockResults);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle errors when fetching results', (done) => {
+        mockedDatabase.getAllBenchmarkResults.mockImplementation(() => {
+          throw new Error('Database error');
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/results'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+            expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch results' });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+
+    describe('GET /api/system-specs', () => {
+      it('should return latest system specs', (done) => {
+        const mockSpecs = {
+          id: 1,
+          serverName: 'test-server',
+          cpuModel: 'Test CPU',
+          cpuCores: 8,
+          cpuThreads: 16,
+          totalMemoryGB: 32,
+          osType: 'linux',
+          osVersion: 'Ubuntu 22.04',
+          gpus: [{ model: 'Test GPU' }],
+          timestamp: '2024-01-15T10:30:00.000Z'
+        };
+
+        mockedDatabase.getLatestSystemSpecs.mockReturnValue(mockSpecs);
+
+        const req = {
+          method: 'GET',
+          url: '/api/system-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            expect(JSON.parse(data)).toEqual(mockSpecs);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle errors when fetching system specs', (done) => {
+        mockedDatabase.getLatestSystemSpecs.mockImplementation(() => {
+          throw new Error('Database error');
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/system-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+            expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch system specs' });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+
+    describe('GET /api/results-with-specs', () => {
+      it('should return results with system specs', (done) => {
+        const mockResults = [
+          {
+            id: 1,
+            model: 'llama2',
+            tokensPerSecond: 45.5,
+            totalTokens: 100,
+            durationSeconds: 2.2,
+            timestamp: '2024-01-15T10:30:00.000Z',
+            success: true,
+            systemSpecs: {
+              serverName: 'test-server',
+              cpuModel: 'Test CPU'
+            }
+          }
+        ];
+
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults as any);
+
+        const req = {
+          method: 'GET',
+          url: '/api/results-with-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            expect(JSON.parse(data)).toEqual(mockResults);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle limit parameter', (done) => {
+        const mockResults = [
+          {
+            id: 1,
+            model: 'llama2',
+            tokensPerSecond: 45.5,
+            totalTokens: 100,
+            durationSeconds: 2.2,
+            timestamp: '2024-01-15T10:30:00.000Z',
+            success: true
+          }
+        ];
+
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults as any);
+
+        const req = {
+          method: 'GET',
+          url: '/api/results-with-specs?limit=10'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(mockedDatabase.getBenchmarkResultsWithSpecs).toHaveBeenCalledWith(10);
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle errors when fetching results with specs', (done) => {
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockImplementation(() => {
+          throw new Error('Database error');
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/results-with-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+            expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch results with specs' });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
     });
   });
 });

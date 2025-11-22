@@ -1,7 +1,9 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { benchmarkModel, checkModelAvailable, saveResultsToCSV } from './benchmark';
+import { benchmarkModel, checkModelAvailable, saveResultsToCSV, saveResultsToDatabase } from './benchmark';
+import * as database from './database';
+import * as systemSpecs from './systemSpecs';
 
 // Mock axios
 jest.mock('axios');
@@ -10,6 +12,14 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 // Mock fs
 jest.mock('fs');
 const mockedFs = fs as jest.Mocked<typeof fs>;
+
+// Mock database module
+jest.mock('./database');
+const mockedDatabase = database as jest.Mocked<typeof database>;
+
+// Mock systemSpecs module
+jest.mock('./systemSpecs');
+const mockedSystemSpecs = systemSpecs as jest.Mocked<typeof systemSpecs>;
 
 describe('Benchmark Module', () => {
   beforeEach(() => {
@@ -254,6 +264,96 @@ describe('Benchmark Module', () => {
 
       const filePath = (mockedFs.writeFileSync as jest.Mock).mock.calls[0][0];
       expect(filePath).toContain('benchmark_results.csv');
+    });
+  });
+
+  describe('saveResultsToDatabase', () => {
+    beforeEach(() => {
+      // Reset mocks for this describe block
+      mockedDatabase.initDatabase.mockReturnValue({} as any);
+      mockedDatabase.saveSystemSpecs.mockReturnValue(1);
+      mockedDatabase.saveBenchmarkResults.mockReturnValue(undefined);
+    });
+
+    it('should initialize database and save results', async () => {
+      const mockSpecs = {
+        serverName: 'test-server',
+        cpuModel: 'Test CPU',
+        cpuCores: 8,
+        cpuThreads: 16,
+        totalMemoryGB: 32,
+        osType: 'linux',
+        osVersion: 'Ubuntu 22.04',
+        gpus: [{ model: 'Test GPU' }]
+      };
+
+      mockedSystemSpecs.getSystemSpecs.mockResolvedValue(mockSpecs);
+      mockedSystemSpecs.formatSystemSpecs.mockReturnValue('Formatted specs');
+
+      const results = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: '2024-01-15T10:30:00.000Z',
+          success: true
+        }
+      ];
+
+      await saveResultsToDatabase(results);
+
+      expect(mockedDatabase.initDatabase).toHaveBeenCalled();
+      expect(mockedSystemSpecs.getSystemSpecs).toHaveBeenCalled();
+      expect(mockedDatabase.saveSystemSpecs).toHaveBeenCalledWith(mockSpecs);
+      expect(mockedDatabase.saveBenchmarkResults).toHaveBeenCalledWith(results, 1);
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Collecting system specifications'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('System specs saved to database'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Benchmark results saved to database'));
+    });
+
+    it('should handle database errors gracefully', async () => {
+      mockedDatabase.initDatabase.mockImplementation(() => {
+        throw new Error('Database initialization failed');
+      });
+
+      const results = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: '2024-01-15T10:30:00.000Z',
+          success: true
+        }
+      ];
+
+      await expect(saveResultsToDatabase(results)).rejects.toThrow('Database initialization failed');
+      expect(console.error).toHaveBeenCalledWith(
+        'Error saving to database:',
+        expect.stringContaining('Database initialization failed')
+      );
+    });
+
+    it('should handle system specs collection errors', async () => {
+      mockedSystemSpecs.getSystemSpecs.mockRejectedValue(new Error('Failed to collect specs'));
+
+      const results = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: '2024-01-15T10:30:00.000Z',
+          success: true
+        }
+      ];
+
+      await expect(saveResultsToDatabase(results)).rejects.toThrow('Failed to collect specs');
+      expect(console.error).toHaveBeenCalledWith(
+        'Error saving to database:',
+        expect.stringContaining('Failed to collect specs')
+      );
     });
   });
 });
