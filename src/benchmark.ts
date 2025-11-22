@@ -3,6 +3,8 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
+import { initDatabase, saveBenchmarkResults, saveSystemSpecs, BenchmarkResult as DBBenchmarkResult } from './database';
+import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
 
 // Configuration
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
@@ -59,9 +61,9 @@ const DEFAULT_MODELS: string[] = [
 
 interface BenchmarkResult {
   model: string;
-  tokensPerSecond: string;
+  tokensPerSecond: number;
   totalTokens: number;
-  durationSeconds: string;
+  durationSeconds: number;
   timestamp: string;
   success: boolean;
   error?: string;
@@ -132,9 +134,9 @@ export async function benchmarkModel(modelName: string): Promise<BenchmarkResult
     
     return {
       model: modelName,
-      tokensPerSecond: tokensPerSecond.toFixed(2),
+      tokensPerSecond: parseFloat(tokensPerSecond.toFixed(2)),
       totalTokens: totalTokens,
-      durationSeconds: durationSeconds.toFixed(2),
+      durationSeconds: parseFloat(durationSeconds.toFixed(2)),
       timestamp: new Date().toISOString(),
       success: true
     };
@@ -142,9 +144,9 @@ export async function benchmarkModel(modelName: string): Promise<BenchmarkResult
     console.error(`  ✗ Error benchmarking ${modelName}: ${(error as Error).message}`);
     return {
       model: modelName,
-      tokensPerSecond: '0',
+      tokensPerSecond: 0,
       totalTokens: 0,
-      durationSeconds: '0',
+      durationSeconds: 0,
       timestamp: new Date().toISOString(),
       success: false,
       error: (error as Error).message
@@ -153,7 +155,7 @@ export async function benchmarkModel(modelName: string): Promise<BenchmarkResult
 }
 
 /**
- * Save results to CSV file
+ * Save results to CSV file (for backward compatibility)
  */
 export function saveResultsToCSV(results: BenchmarkResult[]): void {
   const csvHeader = 'Model,Tokens Per Second,Total Tokens,Duration (s),Timestamp,Status\n';
@@ -165,6 +167,31 @@ export function saveResultsToCSV(results: BenchmarkResult[]): void {
   
   fs.writeFileSync(CSV_FILE, csvContent, 'utf8');
   console.log(`\nResults saved to ${CSV_FILE}`);
+}
+
+/**
+ * Save results to database
+ */
+export async function saveResultsToDatabase(results: BenchmarkResult[]): Promise<void> {
+  try {
+    // Initialize database
+    initDatabase();
+    
+    // Get and save system specs
+    console.log('\nCollecting system specifications...');
+    const systemSpecs = await getSystemSpecs();
+    console.log(formatSystemSpecs(systemSpecs));
+    
+    const systemSpecsId = saveSystemSpecs(systemSpecs);
+    console.log(`\nSystem specs saved to database (ID: ${systemSpecsId})`);
+    
+    // Save benchmark results
+    saveBenchmarkResults(results, systemSpecsId);
+    console.log('Benchmark results saved to database');
+  } catch (error) {
+    console.error('Error saving to database:', (error as Error).message);
+    throw error;
+  }
 }
 
 /**
@@ -200,12 +227,13 @@ async function main(): Promise<void> {
   
   // Save results
   saveResultsToCSV(results);
+  await saveResultsToDatabase(results);
   
   // Summary
   console.log('\n=== Benchmark Summary ===');
   const successfulResults = results.filter(r => r.success);
   if (successfulResults.length > 0) {
-    successfulResults.sort((a, b) => parseFloat(b.tokensPerSecond) - parseFloat(a.tokensPerSecond));
+    successfulResults.sort((a, b) => b.tokensPerSecond - a.tokensPerSecond);
     console.log('\nRanking (by tokens/second):');
     successfulResults.forEach((r, i) => {
       console.log(`  ${i + 1}. ${r.model}: ${r.tokensPerSecond} tokens/s`);

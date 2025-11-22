@@ -3,6 +3,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase } from './database';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -23,8 +24,75 @@ const mimeTypes: MimeTypes = {
   '.ico': 'image/x-icon'
 };
 
+/**
+ * Handle API requests
+ */
+function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  const url = req.url || '';
+  
+  // API endpoint: Get all benchmark results
+  if (url === '/api/results') {
+    try {
+      const results = getAllBenchmarkResults();
+      res.writeHead(200, { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(results));
+      return true;
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to fetch results' }));
+      return true;
+    }
+  }
+  
+  // API endpoint: Get system specs
+  if (url === '/api/system-specs') {
+    try {
+      const specs = getLatestSystemSpecs();
+      res.writeHead(200, { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(specs));
+      return true;
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to fetch system specs' }));
+      return true;
+    }
+  }
+  
+  // API endpoint: Get results with system specs
+  if (url.startsWith('/api/results-with-specs')) {
+    try {
+      const urlParams = new URL(url, `http://localhost:${PORT}`);
+      const limit = urlParams.searchParams.get('limit');
+      const results = getBenchmarkResultsWithSpecs(limit ? parseInt(limit) : undefined);
+      res.writeHead(200, { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(results));
+      return true;
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to fetch results with specs' }));
+      return true;
+    }
+  }
+  
+  return false;
+}
+
 const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  
+  // Handle API requests
+  if (handleApiRequest(req, res)) {
+    return;
+  }
   
   let filePath = '.' + req.url;
   if (filePath === './') {
@@ -52,6 +120,15 @@ const server = http.createServer((req: http.IncomingMessage, res: http.ServerRes
 
 // Only start server if this is the main module
 if (require.main === module) {
+  // Initialize database once at startup
+  try {
+    initDatabase();
+    console.log('✓ Database initialized');
+  } catch (error) {
+    console.error('⚠️  Database initialization failed:', (error as Error).message);
+    console.error('   API endpoints may not work properly');
+  }
+  
   server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}/`);
     console.log('Press Ctrl+C to stop the server');
