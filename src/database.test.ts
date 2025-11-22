@@ -494,7 +494,7 @@ describe('Database Module', () => {
       
       const db = getDatabase();
       
-      // Insert record with malformed JSON directly
+      // Insert record with malformed JSON directly (clearly invalid)
       db.prepare(`
         INSERT INTO system_specs (
           server_name, cpu_model, cpu_cores, cpu_threads,
@@ -510,7 +510,7 @@ describe('Database Module', () => {
         'linux',
         'Ubuntu 22.04',
         null,
-        'invalid json {]',
+        '{invalid: json}',
         new Date().toISOString()
       );
       

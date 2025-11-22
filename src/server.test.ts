@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import { server } from './server';
 import * as database from './database';
+import { BenchmarkResult } from './database';
 
 // Mock fs module
 jest.mock('fs');
@@ -407,7 +408,7 @@ describe('Server Module', () => {
 
     describe('GET /api/results-with-specs', () => {
       it('should return results with system specs', (done) => {
-        const mockResults = [
+        const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
           {
             id: 1,
             model: 'llama2',
@@ -423,7 +424,7 @@ describe('Server Module', () => {
           }
         ];
 
-        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults as any);
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults);
 
         const req = {
           method: 'GET',
@@ -446,7 +447,7 @@ describe('Server Module', () => {
       });
 
       it('should handle limit parameter', (done) => {
-        const mockResults = [
+        const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
           {
             id: 1,
             model: 'llama2',
@@ -458,7 +459,7 @@ describe('Server Module', () => {
           }
         ];
 
-        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults as any);
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults);
 
         const req = {
           method: 'GET',
@@ -531,7 +532,7 @@ describe('Server Module', () => {
     });
 
     it('should handle invalid limit parameter', (done) => {
-      const mockResults = [
+      const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
         {
           id: 1,
           model: 'llama2',
@@ -543,7 +544,7 @@ describe('Server Module', () => {
         }
       ];
 
-      mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults as any);
+      mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults);
 
       const req = {
         method: 'GET',
