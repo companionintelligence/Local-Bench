@@ -206,6 +206,11 @@
             <div id="errorContainer"></div>
             
             <div class="section">
+                <h2>💻 System Specifications</h2>
+                <div id="systemSpecs" class="info-message">Loading system specifications...</div>
+            </div>
+            
+            <div class="section">
                 <h2>📊 Statistics</h2>
                 <div class="stats-grid" id="statsGrid"></div>
             </div>
@@ -245,15 +250,62 @@
     <script>
         let chart = null;
         
-        async function loadResults() {
+        async function loadSystemSpecs() {
             try {
-                const response = await fetch('benchmark_results.csv');
+                const response = await fetch('/api/system-specs');
                 if (!response.ok) {
-                    throw new Error('Results file not found. Please run the benchmark first.');
+                    throw new Error('Failed to fetch system specs');
                 }
                 
-                const csvText = await response.text();
-                const results = parseCSV(csvText);
+                const specs = await response.json();
+                displaySystemSpecs(specs);
+            } catch (error) {
+                document.getElementById('systemSpecs').innerHTML = 
+                    '<p class="error-message">No system specs available. Run a benchmark to collect system information.</p>';
+            }
+        }
+        
+        function displaySystemSpecs(specs) {
+            if (!specs) {
+                document.getElementById('systemSpecs').innerHTML = 
+                    '<p class="info-message">No system specs available. Run a benchmark to collect system information.</p>';
+                return;
+            }
+            
+            const gpusHtml = specs.gpus.map((gpu, idx) => {
+                const vramStr = gpu.vram ? ` (${gpu.vram} MB)` : '';
+                return `<li>${gpu.model}${vramStr}</li>`;
+            }).join('');
+            
+            const motherboardHtml = specs.motherboard 
+                ? `<p><strong>Motherboard:</strong> ${specs.motherboard}</p>` 
+                : '';
+            
+            document.getElementById('systemSpecs').innerHTML = `
+                <div style="background: white; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
+                    <p><strong>Server Name:</strong> ${specs.serverName}</p>
+                    <p><strong>CPU:</strong> ${specs.cpuModel}</p>
+                    <p><strong>Cores/Threads:</strong> ${specs.cpuCores} cores, ${specs.cpuThreads} threads</p>
+                    <p><strong>Memory:</strong> ${specs.totalMemoryGB} GB</p>
+                    <p><strong>OS:</strong> ${specs.osType} ${specs.osVersion}</p>
+                    ${motherboardHtml}
+                    <p><strong>GPU(s):</strong></p>
+                    <ul style="margin-left: 20px;">
+                        ${gpusHtml}
+                    </ul>
+                </div>
+            `;
+        }
+        
+        async function loadResults() {
+            try {
+                // Try to load from API first
+                const response = await fetch('/api/results');
+                if (!response.ok) {
+                    throw new Error('API not available, trying CSV fallback');
+                }
+                
+                const results = await response.json();
                 
                 if (results.length === 0) {
                     showError('No benchmark results found. Please run the benchmark first.');
@@ -265,7 +317,28 @@
                 displayStats(results);
                 clearError();
             } catch (error) {
-                showError(error.message);
+                // Fallback to CSV
+                try {
+                    const response = await fetch('benchmark_results.csv');
+                    if (!response.ok) {
+                        throw new Error('Results not found. Please run the benchmark first.');
+                    }
+                    
+                    const csvText = await response.text();
+                    const results = parseCSV(csvText);
+                    
+                    if (results.length === 0) {
+                        showError('No benchmark results found. Please run the benchmark first.');
+                        return;
+                    }
+                    
+                    displayResults(results);
+                    displayChart(results);
+                    displayStats(results);
+                    clearError();
+                } catch (csvError) {
+                    showError('No results available. Please run the benchmark first.');
+                }
             }
         }
         
@@ -448,7 +521,8 @@
             document.getElementById('errorContainer').innerHTML = '';
         }
         
-        // Load results on page load
+        // Load data on page load
+        loadSystemSpecs();
         loadResults();
     </script>
 </body>

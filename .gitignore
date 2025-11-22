@@ -143,3 +143,5 @@ vite.config.ts.timestamp-*
 
 # Benchmark results
 benchmark_results.csv
+benchmark_data.db
+benchmark_data.db-*

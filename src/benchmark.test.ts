@@ -116,7 +116,7 @@ describe('Benchmark Module', () => {
       expect(result.success).toBe(false);
       expect(result.model).toBe('nonexistent-model');
       expect(result.totalTokens).toBe(0);
-      expect(result.tokensPerSecond).toBe('0');
+      expect(result.tokensPerSecond).toBe(0);
       expect(result.error).toBe('Model not found');
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Error benchmarking'));
     });
@@ -161,17 +161,17 @@ describe('Benchmark Module', () => {
       const results = [
         {
           model: 'llama2',
-          tokensPerSecond: '45.23',
+          tokensPerSecond: 45.23,
           totalTokens: 120,
-          durationSeconds: '2.65',
+          durationSeconds: 2.65,
           timestamp: '2024-01-15T10:30:00.000Z',
           success: true
         },
         {
           model: 'mistral',
-          tokensPerSecond: '52.18',
+          tokensPerSecond: 52.18,
           totalTokens: 125,
-          durationSeconds: '2.40',
+          durationSeconds: 2.40,
           timestamp: '2024-01-15T10:32:30.000Z',
           success: true
         }
@@ -187,16 +187,16 @@ describe('Benchmark Module', () => {
 
       const csvContent = (mockedFs.writeFileSync as jest.Mock).mock.calls[0][1];
       expect(csvContent).toContain('llama2,45.23,120,2.65,2024-01-15T10:30:00.000Z,Success');
-      expect(csvContent).toContain('mistral,52.18,125,2.40,2024-01-15T10:32:30.000Z,Success');
+      expect(csvContent).toContain('mistral,52.18,125,2.4,2024-01-15T10:32:30.000Z,Success');
     });
 
     it('should handle failed benchmarks in CSV', () => {
       const results = [
         {
           model: 'failed-model',
-          tokensPerSecond: '0',
+          tokensPerSecond: 0,
           totalTokens: 0,
-          durationSeconds: '0',
+          durationSeconds: 0,
           timestamp: '2024-01-15T10:30:00.000Z',
           success: false,
           error: 'Model not found'
@@ -223,9 +223,9 @@ describe('Benchmark Module', () => {
       const results = [
         {
           model: 'test-model',
-          tokensPerSecond: '10',
+          tokensPerSecond: 10,
           totalTokens: 50,
-          durationSeconds: '5',
+          durationSeconds: 5,
           timestamp: '2024-01-15T10:30:00.000Z',
           success: true
         }
@@ -242,9 +242,9 @@ describe('Benchmark Module', () => {
       const results = [
         {
           model: 'test',
-          tokensPerSecond: '10',
+          tokensPerSecond: 10,
           totalTokens: 50,
-          durationSeconds: '5',
+          durationSeconds: 5,
           timestamp: '2024-01-15T10:30:00.000Z',
           success: true
         }
