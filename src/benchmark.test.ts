@@ -356,4 +356,91 @@ describe('Benchmark Module', () => {
       );
     });
   });
+
+  describe('Edge cases', () => {
+    it('should handle very large token counts', async () => {
+      const mockResponse = {
+        data: {
+          response: 'Very long response',
+          eval_count: 1000000 // 1 million tokens
+        }
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const result = await benchmarkModel('large-model');
+
+      expect(result.success).toBe(true);
+      expect(result.totalTokens).toBe(1000000);
+      expect(result.tokensPerSecond).toBeGreaterThan(0);
+    });
+
+    it('should handle models with special characters in names', async () => {
+      const mockResponse = {
+        data: {
+          response: 'Test response',
+          eval_count: 50
+        }
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const result = await benchmarkModel('model-name:v1.0');
+
+      expect(result.success).toBe(true);
+      expect(result.model).toBe('model-name:v1.0');
+    });
+
+    it('should handle missing eval_count in response', async () => {
+      const mockResponse = {
+        data: {
+          response: 'Test response'
+          // eval_count is missing
+        }
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      const result = await benchmarkModel('test-model');
+
+      expect(result.success).toBe(true);
+      expect(result.totalTokens).toBe(0);
+    });
+
+    it('should handle empty results array in CSV', () => {
+      const results: any[] = [];
+
+      saveResultsToCSV(results);
+
+      const csvContent = (mockedFs.writeFileSync as jest.Mock).mock.calls[0][1];
+      expect(csvContent).toBe('Model,Tokens Per Second,Total Tokens,Duration (s),Timestamp,Status\n');
+    });
+
+    it('should format CSV correctly with multiple results', () => {
+      const results = [
+        {
+          model: 'model1',
+          tokensPerSecond: 45.23,
+          totalTokens: 100,
+          durationSeconds: 2.21,
+          timestamp: '2024-01-15T10:30:00.000Z',
+          success: true
+        },
+        {
+          model: 'model2',
+          tokensPerSecond: 50.5,
+          totalTokens: 120,
+          durationSeconds: 2.38,
+          timestamp: '2024-01-15T10:31:00.000Z',
+          success: true
+        }
+      ];
+
+      saveResultsToCSV(results);
+
+      const csvContent = (mockedFs.writeFileSync as jest.Mock).mock.calls[0][1];
+      expect(csvContent).toContain('model1,45.23,100,2.21');
+      expect(csvContent).toContain('model2,50.5,120,2.38');
+    });
+  });
 });

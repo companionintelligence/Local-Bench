@@ -503,4 +503,112 @@ describe('Server Module', () => {
       });
     });
   });
+
+  describe('Edge cases and error handling', () => {
+    it('should handle requests without URL', (done) => {
+      const mockContent = Buffer.from('<html>Test</html>');
+
+      (mockedFs.readFile as unknown as jest.Mock).mockImplementation(
+        (path: string, callback: (err: null, data: Buffer) => void) => {
+          callback(null, mockContent);
+        }
+      );
+
+      const req = {
+        method: 'GET',
+        url: undefined
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          expect(res.writeHead).toHaveBeenCalled();
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should handle invalid limit parameter', (done) => {
+      const mockResults = [
+        {
+          id: 1,
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: '2024-01-15T10:30:00.000Z',
+          success: true
+        }
+      ];
+
+      mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults as any);
+
+      const req = {
+        method: 'GET',
+        url: '/api/results-with-specs?limit=invalid'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          // Should call with NaN which becomes undefined
+          expect(mockedDatabase.getBenchmarkResultsWithSpecs).toHaveBeenCalled();
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should handle CORS headers correctly', (done) => {
+      const mockResults: any[] = [];
+      mockedDatabase.getAllBenchmarkResults.mockReturnValue(mockResults);
+
+      const req = {
+        method: 'GET',
+        url: '/api/results'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should handle file read with empty buffer', (done) => {
+      const mockContent = Buffer.from('');
+
+      (mockedFs.readFile as unknown as jest.Mock).mockImplementation(
+        (path: string, callback: (err: null, data: Buffer) => void) => {
+          callback(null, mockContent);
+        }
+      );
+
+      const req = {
+        method: 'GET',
+        url: '/empty.html'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'text/html' });
+          expect(data).toEqual(mockContent);
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+  });
 });

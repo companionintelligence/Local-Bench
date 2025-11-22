@@ -487,4 +487,61 @@ describe('Database Module', () => {
       expect(tables.length).toBeGreaterThan(0);
     });
   });
+
+  describe('Edge cases and error handling', () => {
+    it('should handle malformed JSON in GPU data', () => {
+      initDatabase();
+      
+      const db = getDatabase();
+      
+      // Insert record with malformed JSON directly
+      db.prepare(`
+        INSERT INTO system_specs (
+          server_name, cpu_model, cpu_cores, cpu_threads,
+          total_memory_gb, os_type, os_version, motherboard,
+          gpus, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'test-server',
+        'Test CPU',
+        8,
+        16,
+        32,
+        'linux',
+        'Ubuntu 22.04',
+        null,
+        'invalid json {]',
+        new Date().toISOString()
+      );
+      
+      // Should handle malformed JSON gracefully
+      const allSpecs = getAllSystemSpecs();
+      
+      expect(allSpecs.length).toBe(1);
+      expect(allSpecs[0].gpus).toEqual([]); // Fallback to empty array
+    });
+
+    it('should handle results without system specs', () => {
+      initDatabase();
+      
+      const results: BenchmarkResult[] = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: new Date().toISOString(),
+          success: true
+        }
+      ];
+      
+      // Save without systemSpecsId
+      saveBenchmarkResults(results);
+      
+      const resultsWithSpecs = getBenchmarkResultsWithSpecs();
+      
+      expect(resultsWithSpecs.length).toBe(1);
+      expect(resultsWithSpecs[0].systemSpecs).toBeUndefined();
+    });
+  });
 });
