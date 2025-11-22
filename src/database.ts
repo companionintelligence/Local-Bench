@@ -238,7 +238,7 @@ export function getLatestSystemSpecs(): SystemSpecsRecord | null {
 
   return {
     ...row,
-    gpus: JSON.parse(row.gpus)
+    gpus: safeJsonParse(row.gpus, [])
   };
 }
 
