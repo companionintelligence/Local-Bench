@@ -10,6 +10,8 @@ const TEST_PROMPT = 'Write a short paragraph about artificial intelligence.';
 const CSV_FILE = path.join(__dirname, '..', 'benchmark_results.csv');
 
 // Default models to benchmark (all models from README)
+// This list matches the models listed in the README.md "Default LLM Tests" section
+// Users can override this by passing model names as command-line arguments
 const DEFAULT_MODELS: string[] = [
   'gemma3:270m',
   'qwen3:0.6b',
