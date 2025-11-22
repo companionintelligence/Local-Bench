@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local LLM Benchmark Results</title>
+    <script src="node_modules/chart.js/dist/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .error-message {
+            background: #fee;
+            border: 1px solid #fcc;
+            border-radius: 8px;
+            padding: 15px;
+            color: #c33;
+            margin: 20px 0;
+        }
+        
+        .info-message {
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            border-radius: 8px;
+            padding: 15px;
+            color: #1565c0;
+            margin: 20px 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        th, td {
+            padding: 15px;
+            text-align: left;
+        }
+        
+        th {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+            letter-spacing: 0.5px;
+        }
+        
+        tbody tr {
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+        
+        tbody tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        tbody tr:last-child {
+            border-bottom: none;
+        }
+        
+        .status-success {
+            color: #2e7d32;
+            font-weight: 600;
+        }
+        
+        .status-failed {
+            color: #c62828;
+            font-weight: 600;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .stat-card h3 {
+            font-size: 0.9rem;
+            opacity: 0.9;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        
+        .refresh-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        
+        .refresh-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .refresh-button:active {
+            transform: translateY(0);
+        }
+        
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Local LLM Benchmark</h1>
+            <p>Performance comparison of local language models via Ollama</p>
+        </header>
+        
+        <div class="content">
+            <div id="errorContainer"></div>
+            
+            <div class="section">
+                <h2>📊 Statistics</h2>
+                <div class="stats-grid" id="statsGrid"></div>
+            </div>
+            
+            <div class="section">
+                <h2>📈 Performance Chart</h2>
+                <div class="chart-container">
+                    <canvas id="benchmarkChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>📋 Detailed Results</h2>
+                <button class="refresh-button" onclick="loadResults()">🔄 Refresh Results</button>
+                <table id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Tokens/Second</th>
+                            <th>Total Tokens</th>
+                            <th>Duration (s)</th>
+                            <th>Timestamp</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Local-Bench - Benchmark your local LLMs with ease</p>
+        </footer>
+    </div>
+    
+    <script>
+        let chart = null;
+        
+        async function loadResults() {
+            try {
+                const response = await fetch('benchmark_results.csv');
+                if (!response.ok) {
+                    throw new Error('Results file not found. Please run the benchmark first.');
+                }
+                
+                const csvText = await response.text();
+                const results = parseCSV(csvText);
+                
+                if (results.length === 0) {
+                    showError('No benchmark results found. Please run the benchmark first.');
+                    return;
+                }
+                
+                displayResults(results);
+                displayChart(results);
+                displayStats(results);
+                clearError();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
+        
+        function parseCSV(csvText) {
+            const lines = csvText.trim().split('\n');
+            const results = [];
+            
+            // Skip header line
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const parts = line.split(',');
+                if (parts.length >= 6) {
+                    results.push({
+                        model: parts[0],
+                        tokensPerSecond: parseFloat(parts[1]) || 0,
+                        totalTokens: parseInt(parts[2]) || 0,
+                        duration: parseFloat(parts[3]) || 0,
+                        timestamp: parts[4],
+                        status: parts[5]
+                    });
+                }
+            }
+            
+            return results;
+        }
+        
+        function displayResults(results) {
+            const tbody = document.getElementById('resultsBody');
+            tbody.innerHTML = '';
+            
+            results.forEach(result => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td><strong>${result.model}</strong></td>
+                    <td>${result.tokensPerSecond.toFixed(2)}</td>
+                    <td>${result.totalTokens}</td>
+                    <td>${result.duration.toFixed(2)}</td>
+                    <td>${new Date(result.timestamp).toLocaleString()}</td>
+                    <td class="${result.status === 'Success' ? 'status-success' : 'status-failed'}">
+                        ${result.status}
+                    </td>
+                `;
+            });
+        }
+        
+        function displayChart(results) {
+            const ctx = document.getElementById('benchmarkChart');
+            
+            // Filter successful results and sort by tokens per second
+            const successfulResults = results
+                .filter(r => r.status === 'Success' && r.tokensPerSecond > 0)
+                .sort((a, b) => b.tokensPerSecond - a.tokensPerSecond);
+            
+            if (successfulResults.length === 0) {
+                ctx.parentElement.innerHTML = '<p class="info-message">No successful benchmarks to display in chart.</p>';
+                return;
+            }
+            
+            const labels = successfulResults.map(r => r.model);
+            const data = successfulResults.map(r => r.tokensPerSecond);
+            
+            // Destroy existing chart if it exists
+            if (chart) {
+                chart.destroy();
+            }
+            
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Tokens per Second',
+                        data: data,
+                        backgroundColor: [
+                            'rgba(102, 126, 234, 0.8)',
+                            'rgba(118, 75, 162, 0.8)',
+                            'rgba(102, 126, 234, 0.6)',
+                            'rgba(118, 75, 162, 0.6)',
+                            'rgba(102, 126, 234, 0.4)',
+                            'rgba(118, 75, 162, 0.4)'
+                        ],
+                        borderColor: [
+                            'rgba(102, 126, 234, 1)',
+                            'rgba(118, 75, 162, 1)',
+                            'rgba(102, 126, 234, 1)',
+                            'rgba(118, 75, 162, 1)',
+                            'rgba(102, 126, 234, 1)',
+                            'rgba(118, 75, 162, 1)'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Model Performance Comparison',
+                            font: {
+                                size: 16,
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Tokens per Second',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Model',
+                                font: {
+                                    weight: 'bold'
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function displayStats(results) {
+            const statsGrid = document.getElementById('statsGrid');
+            const successfulResults = results.filter(r => r.status === 'Success' && r.tokensPerSecond > 0);
+            
+            if (successfulResults.length === 0) {
+                statsGrid.innerHTML = '<p class="info-message">No successful benchmarks to display statistics.</p>';
+                return;
+            }
+            
+            const totalModels = results.length;
+            const successfulModels = successfulResults.length;
+            const avgTokensPerSecond = successfulResults.reduce((sum, r) => sum + r.tokensPerSecond, 0) / successfulResults.length;
+            const fastest = successfulResults.reduce((max, r) => r.tokensPerSecond > max.tokensPerSecond ? r : max);
+            
+            statsGrid.innerHTML = `
+                <div class="stat-card">
+                    <h3>Total Models</h3>
+                    <div class="value">${totalModels}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Successful Tests</h3>
+                    <div class="value">${successfulModels}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Average Speed</h3>
+                    <div class="value">${avgTokensPerSecond.toFixed(2)} <span style="font-size: 1rem;">t/s</span></div>
+                </div>
+                <div class="stat-card">
+                    <h3>Fastest Model</h3>
+                    <div class="value" style="font-size: 1.5rem;">${fastest.model}</div>
+                </div>
+            `;
+        }
+        
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `
+                <div class="error-message">
+                    <strong>⚠️ Error:</strong> ${message}
+                </div>
+            `;
+        }
+        
+        function clearError() {
+            document.getElementById('errorContainer').innerHTML = '';
+        }
+        
+        // Load results on page load
+        loadResults();
+    </script>
+</body>
+</html>
