@@ -1,0 +1,23 @@
+{
+  "name": "local-bench",
+  "version": "1.0.0",
+  "description": "A tool for benchmarking local LLM models via Ollama API",
+  "main": "benchmark.js",
+  "scripts": {
+    "benchmark": "node benchmark.js",
+    "server": "node server.js",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "llm",
+    "benchmark",
+    "ollama",
+    "ai",
+    "performance"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.2"
+  }
+}
