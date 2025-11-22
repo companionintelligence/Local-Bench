@@ -109,49 +109,64 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
   }
   
   // API endpoint: Run benchmark (POST)
-  if (url === '/api/run-benchmark' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk.toString();
-    });
+  if (url === '/api/run-benchmark') {
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      });
+      res.end();
+      return true;
+    }
     
-    req.on('end', async () => {
-      try {
-        const data: BenchmarkRequest = JSON.parse(body);
-        const models = data.models || [];
-        
-        if (models.length === 0) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'No models specified' }));
-          return;
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk.toString();
+      });
+      
+      req.on('end', async () => {
+        try {
+          const data: BenchmarkRequest = JSON.parse(body);
+          const models = data.models || [];
+          
+          if (models.length === 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'No models specified' }));
+            return;
+          }
+          
+          // Run benchmarks
+          const results = [];
+          for (const model of models) {
+            const result = await benchmarkModel(model);
+            results.push(result);
+          }
+          
+          // Save results
+          saveResultsToCSV(results);
+          await saveResultsToDatabase(results);
+          
+          res.writeHead(200, { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end(JSON.stringify({ 
+            success: true, 
+            results: results 
+          }));
+        } catch (error) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            error: 'Failed to run benchmark: ' + (error as Error).message 
+          }));
         }
-        
-        // Run benchmarks
-        const results = [];
-        for (const model of models) {
-          const result = await benchmarkModel(model);
-          results.push(result);
-        }
-        
-        // Save results
-        saveResultsToCSV(results);
-        await saveResultsToDatabase(results);
-        
-        res.writeHead(200, { 
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        });
-        res.end(JSON.stringify({ 
-          success: true, 
-          results: results 
-        }));
-      } catch (error) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-          error: 'Failed to run benchmark: ' + (error as Error).message 
-        }));
-      }
-    });
+      });
+      
+      return true;
+    }
     
     return true;
   }

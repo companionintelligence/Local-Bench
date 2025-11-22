@@ -811,12 +811,12 @@
             const progressContainer = document.getElementById('progressContainer');
             progressContainer.classList.add('active');
             
+            const progressFill = document.getElementById('progressFill');
+            const progressStatus = document.getElementById('progressStatus');
+            
             clearBenchmarkAlert();
             
             try {
-                const progressFill = document.getElementById('progressFill');
-                const progressStatus = document.getElementById('progressStatus');
-                
                 progressStatus.textContent = `Benchmarking ${selectedModels.length} model(s)...`;
                 progressFill.style.width = '10%';
                 progressFill.textContent = '10%';
@@ -830,8 +830,15 @@
                 });
                 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to run benchmark');
+                    let errorMessage = 'Failed to run benchmark';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.error || errorMessage;
+                    } catch (e) {
+                        // If response is not JSON, use status text
+                        errorMessage = `${errorMessage} (${response.status} ${response.statusText})`;
+                    }
+                    throw new Error(errorMessage);
                 }
                 
                 const result = await response.json();
