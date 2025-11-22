@@ -41,4 +41,4 @@
 | qwen3-coder:480b | 290GB | 256K | Text |
 | deepseek-v3.1:671b latest | 404GB | 160K | Text |
 | deepseek-r1:671b | 404GB | 160K | Text |
-| minmax m2 |  | 200K | Text |
+| minmax m2 | 968GB | 200K | Text |
