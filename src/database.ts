@@ -262,7 +262,7 @@ export function getAllSystemSpecs(): SystemSpecsRecord[] {
   
   return rows.map(row => ({
     ...row,
-    gpus: JSON.parse(row.gpus)
+    gpus: safeJsonParse(row.gpus, [])
   }));
 }
 
@@ -272,9 +272,7 @@ export function getAllSystemSpecs(): SystemSpecsRecord[] {
 export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkResult & { systemSpecs?: SystemSpecsRecord }> {
   const database = getDatabase();
   
-  const limitClause = limit ? `LIMIT ${limit}` : '';
-  
-  const stmt = database.prepare(`
+  const query = `
     SELECT 
       br.id, br.model, br.tokens_per_second as tokensPerSecond,
       br.total_tokens as totalTokens, br.duration_seconds as durationSeconds,
@@ -286,11 +284,20 @@ export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkRes
     FROM benchmark_results br
     LEFT JOIN system_specs ss ON br.system_specs_id = ss.id
     ORDER BY br.timestamp DESC
-    ${limitClause}
-  `);
-
-  const rows = stmt.all() as any[];
+  `;
   
+  const stmt = limit && limit > 0 
+    ? database.prepare(query + ' LIMIT ?')
+    : database.prepare(query);
+    
+  const rows = limit && limit > 0 
+    ? stmt.all(limit) as any[]
+    : stmt.all() as any[];
+    
+  return mapResultsWithSpecs(rows);
+}
+
+function mapResultsWithSpecs(rows: any[]): Array<BenchmarkResult & { systemSpecs?: SystemSpecsRecord }> {
   return rows.map(row => {
     const result: BenchmarkResult & { systemSpecs?: SystemSpecsRecord } = {
       id: row.id,
@@ -315,11 +322,23 @@ export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkRes
         osType: row.osType,
         osVersion: row.osVersion,
         motherboard: row.motherboard,
-        gpus: JSON.parse(row.gpus),
+        gpus: safeJsonParse(row.gpus, []),
         timestamp: row.timestamp
       };
     }
 
     return result;
   });
+}
+
+/**
+ * Safely parse JSON with fallback
+ */
+function safeJsonParse<T>(jsonString: string, fallback: T): T {
+  try {
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error('Error parsing JSON:', error);
+    return fallback;
+  }
 }

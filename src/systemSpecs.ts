@@ -37,8 +37,8 @@ export async function getSystemSpecs(): Promise<SystemSpecs> {
     return {
       serverName: os.hostname(),
       cpuModel: cpu.brand || 'Unknown CPU',
-      cpuCores: cpu.cores || 0,
-      cpuThreads: cpu.physicalCores || 0,
+      cpuCores: cpu.physicalCores || 0,
+      cpuThreads: cpu.cores || 0,
       totalMemoryGB: parseFloat((mem.total / (1024 ** 3)).toFixed(2)),
       osType: osInfo.platform || os.platform(),
       osVersion: osInfo.distro || os.release(),

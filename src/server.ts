@@ -3,7 +3,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs } from './database';
+import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase } from './database';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -33,7 +33,6 @@ function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse): 
   // API endpoint: Get all benchmark results
   if (url === '/api/results') {
     try {
-      initDatabase();
       const results = getAllBenchmarkResults();
       res.writeHead(200, { 
         'Content-Type': 'application/json',
@@ -51,7 +50,6 @@ function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse): 
   // API endpoint: Get system specs
   if (url === '/api/system-specs') {
     try {
-      initDatabase();
       const specs = getLatestSystemSpecs();
       res.writeHead(200, { 
         'Content-Type': 'application/json',
@@ -69,7 +67,6 @@ function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse): 
   // API endpoint: Get results with system specs
   if (url.startsWith('/api/results-with-specs')) {
     try {
-      initDatabase();
       const urlParams = new URL(url, `http://localhost:${PORT}`);
       const limit = urlParams.searchParams.get('limit');
       const results = getBenchmarkResultsWithSpecs(limit ? parseInt(limit) : undefined);
@@ -123,6 +120,15 @@ const server = http.createServer((req: http.IncomingMessage, res: http.ServerRes
 
 // Only start server if this is the main module
 if (require.main === module) {
+  // Initialize database once at startup
+  try {
+    initDatabase();
+    console.log('✓ Database initialized');
+  } catch (error) {
+    console.error('⚠️  Database initialization failed:', (error as Error).message);
+    console.error('   API endpoints may not work properly');
+  }
+  
   server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}/`);
     console.log('Press Ctrl+C to stop the server');
