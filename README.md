@@ -133,7 +133,3 @@ You can customize the following by editing `benchmark.js`:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-ISC
