@@ -1,6 +1,8 @@
 # Local-Bench 🚀
 
 A tool for benchmarking local LLM (Large Language Model) performance via the Ollama API. This tool measures the token generation speed of different models and presents the results in an interactive web interface with tables and charts.
+<img width="1280" height="1432" alt="image" src="https://github.com/user-attachments/assets/ce2bfe4f-4fd5-437f-8283-0ac2507f6cf1" />
+
 
 ## Features
 
