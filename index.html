@@ -19,6 +19,12 @@
             padding: 20px;
         }
         
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+        }
+        
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -40,6 +46,16 @@
             margin-bottom: 10px;
         }
         
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+            
+            header p {
+                font-size: 0.95rem;
+            }
+        }
+        
         header p {
             font-size: 1.1rem;
             opacity: 0.9;
@@ -47,6 +63,12 @@
         
         .content {
             padding: 30px;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                padding: 15px;
+            }
         }
         
         .section {
@@ -59,6 +81,12 @@
             font-size: 1.8rem;
             border-bottom: 3px solid #667eea;
             padding-bottom: 10px;
+        }
+        
+        @media (max-width: 768px) {
+            .section h2 {
+                font-size: 1.4rem;
+            }
         }
         
         .error-message {
@@ -86,6 +114,16 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             border-radius: 8px;
             overflow: hidden;
+        }
+        
+        @media (max-width: 768px) {
+            table {
+                font-size: 0.85rem;
+            }
+            
+            th, td {
+                padding: 10px 8px;
+            }
         }
         
         thead {
@@ -193,6 +231,158 @@
             color: #666;
             font-size: 0.9rem;
         }
+        
+        /* Benchmark Runner Styles */
+        .benchmark-controls {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .model-selector {
+            margin: 15px 0;
+        }
+        
+        .model-selector label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .model-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            background: white;
+        }
+        
+        .model-checkbox {
+            display: block;
+            margin: 8px 0;
+            cursor: pointer;
+        }
+        
+        .model-checkbox input {
+            margin-right: 8px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            font-size: 1rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: 600;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: #5a6268;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        
+        .progress-container {
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .progress-container.active {
+            display: block;
+        }
+        
+        .progress-bar {
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        
+        .progress-status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .alert-info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        @media (max-width: 768px) {
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -204,6 +394,39 @@
         
         <div class="content">
             <div id="errorContainer"></div>
+            
+            <div class="section">
+                <h2>🚀 Run Benchmarks</h2>
+                <div class="benchmark-controls">
+                    <div id="benchmarkAlert"></div>
+                    
+                    <div class="model-selector">
+                        <label>Select Models to Benchmark:</label>
+                        <div class="model-list" id="modelList">
+                            <p style="color: #666;">Loading available models...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="button-group">
+                        <button class="btn btn-primary" id="runBenchmarkBtn" onclick="runBenchmark()">
+                            ▶️ Run Benchmark
+                        </button>
+                        <button class="btn btn-secondary" onclick="selectAllModels()">
+                            ☑️ Select All
+                        </button>
+                        <button class="btn btn-secondary" onclick="deselectAllModels()">
+                            ☐ Deselect All
+                        </button>
+                    </div>
+                    
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill">0%</div>
+                        </div>
+                        <div class="progress-status" id="progressStatus">Preparing...</div>
+                    </div>
+                </div>
+            </div>
             
             <div class="section">
                 <h2>💻 System Specifications</h2>
@@ -521,9 +744,141 @@
             document.getElementById('errorContainer').innerHTML = '';
         }
         
+        // Benchmark Runner Functions
+        async function loadAvailableModels() {
+            try {
+                const response = await fetch('/api/models');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch models');
+                }
+                
+                const models = await response.json();
+                const modelList = document.getElementById('modelList');
+                
+                if (models.length === 0) {
+                    modelList.innerHTML = '<p style="color: #999;">No models found. Make sure Ollama is running and has models installed.</p>';
+                    return;
+                }
+                
+                modelList.innerHTML = models.map(model => `
+                    <label class="model-checkbox">
+                        <input type="checkbox" value="${model.name}" class="model-checkbox-input">
+                        ${model.name}
+                    </label>
+                `).join('');
+            } catch (error) {
+                const modelList = document.getElementById('modelList');
+                modelList.innerHTML = '<p style="color: #c33;">Failed to load models. Make sure the server and Ollama are running.</p>';
+            }
+        }
+        
+        function selectAllModels() {
+            const checkboxes = document.querySelectorAll('.model-checkbox-input');
+            checkboxes.forEach(cb => cb.checked = true);
+        }
+        
+        function deselectAllModels() {
+            const checkboxes = document.querySelectorAll('.model-checkbox-input');
+            checkboxes.forEach(cb => cb.checked = false);
+        }
+        
+        function showBenchmarkAlert(message, type) {
+            const alertContainer = document.getElementById('benchmarkAlert');
+            const alertClass = type === 'success' ? 'alert-success' : 
+                               type === 'error' ? 'alert-error' : 'alert-info';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+        }
+        
+        function clearBenchmarkAlert() {
+            document.getElementById('benchmarkAlert').innerHTML = '';
+        }
+        
+        async function runBenchmark() {
+            // Get selected models
+            const checkboxes = document.querySelectorAll('.model-checkbox-input:checked');
+            const selectedModels = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (selectedModels.length === 0) {
+                showBenchmarkAlert('Please select at least one model to benchmark.', 'error');
+                return;
+            }
+            
+            // Disable button and show progress
+            const runBtn = document.getElementById('runBenchmarkBtn');
+            runBtn.disabled = true;
+            runBtn.textContent = '⏳ Running...';
+            
+            const progressContainer = document.getElementById('progressContainer');
+            progressContainer.classList.add('active');
+            
+            clearBenchmarkAlert();
+            
+            try {
+                const progressFill = document.getElementById('progressFill');
+                const progressStatus = document.getElementById('progressStatus');
+                
+                progressStatus.textContent = `Benchmarking ${selectedModels.length} model(s)...`;
+                progressFill.style.width = '10%';
+                progressFill.textContent = '10%';
+                
+                const response = await fetch('/api/run-benchmark', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ models: selectedModels })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to run benchmark');
+                }
+                
+                const result = await response.json();
+                
+                progressFill.style.width = '100%';
+                progressFill.textContent = '100%';
+                progressStatus.textContent = 'Benchmark completed!';
+                
+                // Show success message
+                const successCount = result.results.filter(r => r.success).length;
+                const failedCount = result.results.length - successCount;
+                
+                let message = `✓ Benchmark completed! ${successCount} successful`;
+                if (failedCount > 0) {
+                    message += `, ${failedCount} failed`;
+                }
+                showBenchmarkAlert(message, 'success');
+                
+                // Reload results
+                setTimeout(() => {
+                    loadResults();
+                    loadSystemSpecs();
+                }, 1000);
+                
+            } catch (error) {
+                progressFill.style.width = '100%';
+                progressFill.textContent = 'Error';
+                progressStatus.textContent = 'Benchmark failed';
+                showBenchmarkAlert('⚠️ Error: ' + error.message, 'error');
+            } finally {
+                // Re-enable button
+                runBtn.disabled = false;
+                runBtn.textContent = '▶️ Run Benchmark';
+                
+                // Hide progress after delay
+                setTimeout(() => {
+                    progressContainer.classList.remove('active');
+                    document.getElementById('progressFill').style.width = '0%';
+                    document.getElementById('progressFill').textContent = '0%';
+                }, 3000);
+            }
+        }
+        
         // Load data on page load
         loadSystemSpecs();
         loadResults();
+        loadAvailableModels();
     </script>
 </body>
 </html>
