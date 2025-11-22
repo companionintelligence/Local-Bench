@@ -1,32 +1,93 @@
 #!/usr/bin/env node
 
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Configuration
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
 const TEST_PROMPT = 'Write a short paragraph about artificial intelligence.';
-const CSV_FILE = path.join(__dirname, 'benchmark_results.csv');
+const CSV_FILE = path.join(__dirname, '..', 'benchmark_results.csv');
 
-// Default models to benchmark (can be overridden via command line)
-const DEFAULT_MODELS = [
-  'llama2',
-  'mistral',
-  'codellama',
-  'phi'
+// Default models to benchmark (all models from README)
+// This list matches the models listed in the README.md "Default LLM Tests" section
+// Users can override this by passing model names as command-line arguments
+const DEFAULT_MODELS: string[] = [
+  'gemma3:270m',
+  'qwen3:0.6b',
+  'gemma3:1b',
+  'deepseek-r1:1.5b',
+  'llama3.2:1b',
+  'qwen3:1.7b',
+  'qwen3-vl:2b',
+  'llama3.2:3b',
+  'qwen3:4b',
+  'gemma3:4b',
+  'qwen3-vl:4b',
+  'deepseek-r1:7b',
+  'llama3.1:8b',
+  'deepseek-r1:8b',
+  'qwen3:8b',
+  'qwen3-vl:8b',
+  'gemma3:12b',
+  'deepseek-r1:14b',
+  'qwen3:14b',
+  'gpt-oss:20b',
+  'gemma3:27b',
+  'qwen3-coder:latest',
+  'qwen3-coder:30b',
+  'qwen3:30b',
+  'deepseek-r1:32b',
+  'qwen3:32b',
+  'qwen3-vl:30b',
+  'qwen3-vl:32b',
+  'deepseek-r1:70b',
+  'llama3.1:70b',
+  'gpt-oss:120b',
+  'llama4:16x17b',
+  'GLM-4.6:TQ1_0',
+  'qwen3:235b',
+  'qwen3-vl:235b',
+  'GLM-4.6:Q4_K_M',
+  'llama3.1:405b',
+  'llama4:128x17b',
+  'qwen3-coder:480b',
+  'deepseek-v3.1:671b',
+  'deepseek-r1:671b',
+  'minmax m2'
 ];
+
+interface BenchmarkResult {
+  model: string;
+  tokensPerSecond: string;
+  totalTokens: number;
+  durationSeconds: string;
+  timestamp: string;
+  success: boolean;
+  error?: string;
+}
+
+interface OllamaModel {
+  name: string;
+  [key: string]: any;
+}
+
+interface OllamaGenerateResponse {
+  response?: string;
+  eval_count?: number;
+  [key: string]: any;
+}
 
 /**
  * Check if a model is available in Ollama
  */
-async function checkModelAvailable(modelName) {
+export async function checkModelAvailable(modelName: string): Promise<boolean> {
   try {
-    const response = await axios.get(`${OLLAMA_API_URL}/api/tags`);
+    const response = await axios.get<{ models?: OllamaModel[] }>(`${OLLAMA_API_URL}/api/tags`);
     const models = response.data.models || [];
-    return models.some(m => m.name.startsWith(modelName));
+    return models.some((m: OllamaModel) => m.name.startsWith(modelName));
   } catch (error) {
-    console.error(`Error checking models: ${error.message}`);
+    console.error(`Error checking models: ${(error as Error).message}`);
     return false;
   }
 }
@@ -34,7 +95,7 @@ async function checkModelAvailable(modelName) {
 /**
  * Benchmark a single model
  */
-async function benchmarkModel(modelName) {
+export async function benchmarkModel(modelName: string): Promise<BenchmarkResult> {
   console.log(`\nBenchmarking ${modelName}...`);
   
   try {
@@ -42,7 +103,7 @@ async function benchmarkModel(modelName) {
     let totalTokens = 0;
     let responseText = '';
     
-    const response = await axios.post(
+    const response = await axios.post<OllamaGenerateResponse>(
       `${OLLAMA_API_URL}/api/generate`,
       {
         model: modelName,
@@ -78,15 +139,15 @@ async function benchmarkModel(modelName) {
       success: true
     };
   } catch (error) {
-    console.error(`  ✗ Error benchmarking ${modelName}: ${error.message}`);
+    console.error(`  ✗ Error benchmarking ${modelName}: ${(error as Error).message}`);
     return {
       model: modelName,
-      tokensPerSecond: 0,
+      tokensPerSecond: '0',
       totalTokens: 0,
-      durationSeconds: 0,
+      durationSeconds: '0',
       timestamp: new Date().toISOString(),
       success: false,
-      error: error.message
+      error: (error as Error).message
     };
   }
 }
@@ -94,7 +155,7 @@ async function benchmarkModel(modelName) {
 /**
  * Save results to CSV file
  */
-function saveResultsToCSV(results) {
+export function saveResultsToCSV(results: BenchmarkResult[]): void {
   const csvHeader = 'Model,Tokens Per Second,Total Tokens,Duration (s),Timestamp,Status\n';
   const csvRows = results.map(r => 
     `${r.model},${r.tokensPerSecond},${r.totalTokens},${r.durationSeconds},${r.timestamp},${r.success ? 'Success' : 'Failed'}`
@@ -109,7 +170,7 @@ function saveResultsToCSV(results) {
 /**
  * Main function
  */
-async function main() {
+async function main(): Promise<void> {
   console.log('=== Local LLM Benchmark Tool ===');
   console.log(`Ollama API URL: ${OLLAMA_API_URL}`);
   
@@ -126,12 +187,12 @@ async function main() {
     console.log('✓ Connected to Ollama API');
   } catch (error) {
     console.error('✗ Cannot connect to Ollama API. Make sure Ollama is running.');
-    console.error(`  Error: ${error.message}`);
+    console.error(`  Error: ${(error as Error).message}`);
     process.exit(1);
   }
   
   // Run benchmarks
-  const results = [];
+  const results: BenchmarkResult[] = [];
   for (const model of modelsToTest) {
     const result = await benchmarkModel(model);
     results.push(result);
@@ -144,7 +205,7 @@ async function main() {
   console.log('\n=== Benchmark Summary ===');
   const successfulResults = results.filter(r => r.success);
   if (successfulResults.length > 0) {
-    successfulResults.sort((a, b) => b.tokensPerSecond - a.tokensPerSecond);
+    successfulResults.sort((a, b) => parseFloat(b.tokensPerSecond) - parseFloat(a.tokensPerSecond));
     console.log('\nRanking (by tokens/second):');
     successfulResults.forEach((r, i) => {
       console.log(`  ${i + 1}. ${r.model}: ${r.tokensPerSecond} tokens/s`);
@@ -169,5 +230,3 @@ if (require.main === module) {
     process.exit(1);
   });
 }
-
-module.exports = { benchmarkModel, saveResultsToCSV };

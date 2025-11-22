@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
-const mimeTypes = {
+interface MimeTypes {
+  [key: string]: string;
+}
+
+const mimeTypes: MimeTypes = {
   '.html': 'text/html',
   '.css': 'text/css',
   '.js': 'application/javascript',
@@ -19,7 +23,7 @@ const mimeTypes = {
   '.ico': 'image/x-icon'
 };
 
-const server = http.createServer((req, res) => {
+const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   
   let filePath = '.' + req.url;
@@ -30,7 +34,7 @@ const server = http.createServer((req, res) => {
   const extname = String(path.extname(filePath)).toLowerCase();
   const contentType = mimeTypes[extname] || 'application/octet-stream';
   
-  fs.readFile(filePath, (error, content) => {
+  fs.readFile(filePath, (error: NodeJS.ErrnoException | null, content: Buffer) => {
     if (error) {
       if (error.code === 'ENOENT') {
         res.writeHead(404, { 'Content-Type': 'text/html' });
@@ -46,7 +50,12 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}/`);
-  console.log('Press Ctrl+C to stop the server');
-});
+// Only start server if this is the main module
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}/`);
+    console.log('Press Ctrl+C to stop the server');
+  });
+}
+
+export { server };
