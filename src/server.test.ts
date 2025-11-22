@@ -1,10 +1,16 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import { server } from './server';
+import * as database from './database';
+import { BenchmarkResult } from './database';
 
 // Mock fs module
 jest.mock('fs');
 const mockedFs = fs as jest.Mocked<typeof fs>;
+
+// Mock database module
+jest.mock('./database');
+const mockedDatabase = database as jest.Mocked<typeof database>;
 
 describe('Server Module', () => {
   beforeEach(() => {
@@ -272,6 +278,333 @@ describe('Server Module', () => {
         end: jest.fn(() => {
           expect(console.log).toHaveBeenCalledWith(expect.stringContaining('POST'));
           expect(console.log).toHaveBeenCalledWith(expect.stringContaining('/api/test'));
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+  });
+
+  describe('API Endpoints', () => {
+    describe('GET /api/results', () => {
+      it('should return all benchmark results', (done) => {
+        const mockResults = [
+          {
+            id: 1,
+            model: 'llama2',
+            tokensPerSecond: 45.5,
+            totalTokens: 100,
+            durationSeconds: 2.2,
+            timestamp: '2024-01-15T10:30:00.000Z',
+            success: true
+          }
+        ];
+
+        mockedDatabase.getAllBenchmarkResults.mockReturnValue(mockResults);
+
+        const req = {
+          method: 'GET',
+          url: '/api/results'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            expect(JSON.parse(data)).toEqual(mockResults);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle errors when fetching results', (done) => {
+        mockedDatabase.getAllBenchmarkResults.mockImplementation(() => {
+          throw new Error('Database error');
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/results'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+            expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch results' });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+
+    describe('GET /api/system-specs', () => {
+      it('should return latest system specs', (done) => {
+        const mockSpecs = {
+          id: 1,
+          serverName: 'test-server',
+          cpuModel: 'Test CPU',
+          cpuCores: 8,
+          cpuThreads: 16,
+          totalMemoryGB: 32,
+          osType: 'linux',
+          osVersion: 'Ubuntu 22.04',
+          gpus: [{ model: 'Test GPU' }],
+          timestamp: '2024-01-15T10:30:00.000Z'
+        };
+
+        mockedDatabase.getLatestSystemSpecs.mockReturnValue(mockSpecs);
+
+        const req = {
+          method: 'GET',
+          url: '/api/system-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            expect(JSON.parse(data)).toEqual(mockSpecs);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle errors when fetching system specs', (done) => {
+        mockedDatabase.getLatestSystemSpecs.mockImplementation(() => {
+          throw new Error('Database error');
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/system-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+            expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch system specs' });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+
+    describe('GET /api/results-with-specs', () => {
+      it('should return results with system specs', (done) => {
+        const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
+          {
+            id: 1,
+            model: 'llama2',
+            tokensPerSecond: 45.5,
+            totalTokens: 100,
+            durationSeconds: 2.2,
+            timestamp: '2024-01-15T10:30:00.000Z',
+            success: true,
+            systemSpecs: {
+              serverName: 'test-server',
+              cpuModel: 'Test CPU'
+            }
+          }
+        ];
+
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults);
+
+        const req = {
+          method: 'GET',
+          url: '/api/results-with-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            expect(JSON.parse(data)).toEqual(mockResults);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle limit parameter', (done) => {
+        const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
+          {
+            id: 1,
+            model: 'llama2',
+            tokensPerSecond: 45.5,
+            totalTokens: 100,
+            durationSeconds: 2.2,
+            timestamp: '2024-01-15T10:30:00.000Z',
+            success: true
+          }
+        ];
+
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults);
+
+        const req = {
+          method: 'GET',
+          url: '/api/results-with-specs?limit=10'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(mockedDatabase.getBenchmarkResultsWithSpecs).toHaveBeenCalledWith(10);
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should handle errors when fetching results with specs', (done) => {
+        mockedDatabase.getBenchmarkResultsWithSpecs.mockImplementation(() => {
+          throw new Error('Database error');
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/results-with-specs'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+            expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch results with specs' });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+  });
+
+  describe('Edge cases and error handling', () => {
+    it('should handle requests without URL', (done) => {
+      const mockContent = Buffer.from('<html>Test</html>');
+
+      (mockedFs.readFile as unknown as jest.Mock).mockImplementation(
+        (path: string, callback: (err: null, data: Buffer) => void) => {
+          callback(null, mockContent);
+        }
+      );
+
+      const req = {
+        method: 'GET',
+        url: undefined
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          expect(res.writeHead).toHaveBeenCalled();
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should handle invalid limit parameter', (done) => {
+      const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
+        {
+          id: 1,
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: '2024-01-15T10:30:00.000Z',
+          success: true
+        }
+      ];
+
+      mockedDatabase.getBenchmarkResultsWithSpecs.mockReturnValue(mockResults);
+
+      const req = {
+        method: 'GET',
+        url: '/api/results-with-specs?limit=invalid'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          // Should call with NaN which becomes undefined
+          expect(mockedDatabase.getBenchmarkResultsWithSpecs).toHaveBeenCalled();
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should handle CORS headers correctly', (done) => {
+      const mockResults: any[] = [];
+      mockedDatabase.getAllBenchmarkResults.mockReturnValue(mockResults);
+
+      const req = {
+        method: 'GET',
+        url: '/api/results'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should handle file read with empty buffer', (done) => {
+      const mockContent = Buffer.from('');
+
+      (mockedFs.readFile as unknown as jest.Mock).mockImplementation(
+        (path: string, callback: (err: null, data: Buffer) => void) => {
+          callback(null, mockContent);
+        }
+      );
+
+      const req = {
+        method: 'GET',
+        url: '/empty.html'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'text/html' });
+          expect(data).toEqual(mockContent);
           done();
         })
       } as unknown as http.ServerResponse;

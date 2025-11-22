@@ -6,6 +6,9 @@ import {
   getAllBenchmarkResults,
   getLatestSystemSpecs,
   getBenchmarkResultsWithSpecs,
+  getBenchmarkResultsByModel,
+  getAllSystemSpecs,
+  getDatabase,
   BenchmarkResult
 } from './database';
 import { SystemSpecs } from './systemSpecs';
@@ -329,6 +332,216 @@ describe('Database Module', () => {
       const results = getBenchmarkResultsWithSpecs(2);
       
       expect(results.length).toBe(2);
+    });
+  });
+
+  describe('getBenchmarkResultsByModel', () => {
+    it('should return results for specific model', () => {
+      initDatabase();
+      
+      const testResults: BenchmarkResult[] = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: new Date().toISOString(),
+          success: true
+        },
+        {
+          model: 'mistral',
+          tokensPerSecond: 50.0,
+          totalTokens: 120,
+          durationSeconds: 2.4,
+          timestamp: new Date().toISOString(),
+          success: true
+        },
+        {
+          model: 'llama2',
+          tokensPerSecond: 46.0,
+          totalTokens: 110,
+          durationSeconds: 2.3,
+          timestamp: new Date().toISOString(),
+          success: true
+        }
+      ];
+      
+      saveBenchmarkResults(testResults);
+      
+      const results = getBenchmarkResultsByModel('llama2');
+      
+      expect(results.length).toBe(2);
+      expect(results[0].model).toBe('llama2');
+      expect(results[1].model).toBe('llama2');
+    });
+
+    it('should return empty array for unknown model', () => {
+      initDatabase();
+      
+      const testResults: BenchmarkResult[] = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: new Date().toISOString(),
+          success: true
+        }
+      ];
+      
+      saveBenchmarkResults(testResults);
+      
+      const results = getBenchmarkResultsByModel('unknown-model');
+      
+      expect(results.length).toBe(0);
+    });
+  });
+
+  describe('getAllSystemSpecs', () => {
+    it('should return all system specs records', () => {
+      initDatabase();
+      
+      const specs1: SystemSpecs = {
+        serverName: 'server1',
+        cpuModel: 'CPU 1',
+        cpuCores: 4,
+        cpuThreads: 8,
+        totalMemoryGB: 16,
+        osType: 'linux',
+        osVersion: 'Ubuntu 20.04',
+        gpus: [{ model: 'GPU 1' }]
+      };
+      
+      const specs2: SystemSpecs = {
+        serverName: 'server2',
+        cpuModel: 'CPU 2',
+        cpuCores: 8,
+        cpuThreads: 16,
+        totalMemoryGB: 32,
+        osType: 'linux',
+        osVersion: 'Ubuntu 22.04',
+        gpus: [{ model: 'GPU 2' }]
+      };
+      
+      saveSystemSpecs(specs1);
+      saveSystemSpecs(specs2);
+      
+      const allSpecs = getAllSystemSpecs();
+      
+      expect(allSpecs.length).toBe(2);
+      expect(allSpecs[0].serverName).toBe('server2'); // Latest first
+      expect(allSpecs[1].serverName).toBe('server1');
+    });
+
+    it('should return empty array when no specs', () => {
+      initDatabase();
+      
+      const allSpecs = getAllSystemSpecs();
+      
+      expect(allSpecs.length).toBe(0);
+    });
+
+    it('should parse GPU JSON correctly', () => {
+      initDatabase();
+      
+      const specs: SystemSpecs = {
+        serverName: 'test-server',
+        cpuModel: 'Test CPU',
+        cpuCores: 8,
+        cpuThreads: 16,
+        totalMemoryGB: 32,
+        osType: 'linux',
+        osVersion: 'Ubuntu 22.04',
+        gpus: [
+          { model: 'GPU 1', vram: 8000 },
+          { model: 'GPU 2', vram: 16000 }
+        ]
+      };
+      
+      saveSystemSpecs(specs);
+      
+      const allSpecs = getAllSystemSpecs();
+      
+      expect(allSpecs.length).toBe(1);
+      expect(allSpecs[0].gpus.length).toBe(2);
+      expect(allSpecs[0].gpus[0].model).toBe('GPU 1');
+      expect(allSpecs[0].gpus[0].vram).toBe(8000);
+    });
+  });
+
+  describe('getDatabase', () => {
+    it('should return existing database instance', () => {
+      const db1 = initDatabase();
+      const db2 = getDatabase();
+      
+      expect(db1).toBe(db2);
+    });
+
+    it('should initialize database if not exists', () => {
+      const db = getDatabase();
+      
+      expect(db).toBeDefined();
+      
+      // Verify it's a working database
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+      expect(tables.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Edge cases and error handling', () => {
+    it('should handle malformed JSON in GPU data', () => {
+      initDatabase();
+      
+      const db = getDatabase();
+      
+      // Insert record with malformed JSON directly (clearly invalid)
+      db.prepare(`
+        INSERT INTO system_specs (
+          server_name, cpu_model, cpu_cores, cpu_threads,
+          total_memory_gb, os_type, os_version, motherboard,
+          gpus, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        'test-server',
+        'Test CPU',
+        8,
+        16,
+        32,
+        'linux',
+        'Ubuntu 22.04',
+        null,
+        '{invalid: json}',
+        new Date().toISOString()
+      );
+      
+      // Should handle malformed JSON gracefully
+      const allSpecs = getAllSystemSpecs();
+      
+      expect(allSpecs.length).toBe(1);
+      expect(allSpecs[0].gpus).toEqual([]); // Fallback to empty array
+    });
+
+    it('should handle results without system specs', () => {
+      initDatabase();
+      
+      const results: BenchmarkResult[] = [
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: new Date().toISOString(),
+          success: true
+        }
+      ];
+      
+      // Save without systemSpecsId
+      saveBenchmarkResults(results);
+      
+      const resultsWithSpecs = getBenchmarkResultsWithSpecs();
+      
+      expect(resultsWithSpecs.length).toBe(1);
+      expect(resultsWithSpecs[0].systemSpecs).toBeUndefined();
     });
   });
 });

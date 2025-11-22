@@ -117,5 +117,65 @@ describe('SystemSpecs Module', () => {
       expect(formatted).toContain('Test GPU');
       expect(formatted).not.toContain('MB)');
     });
+
+    it('should handle multiple GPUs', () => {
+      const specs: SystemSpecs = {
+        serverName: 'test-server',
+        cpuModel: 'Test CPU',
+        cpuCores: 8,
+        cpuThreads: 16,
+        totalMemoryGB: 32,
+        osType: 'linux',
+        osVersion: 'Ubuntu 22.04',
+        gpus: [
+          { model: 'GPU 1', vram: 8000 },
+          { model: 'GPU 2', vram: 16000 },
+          { model: 'GPU 3' }
+        ]
+      };
+
+      const formatted = formatSystemSpecs(specs);
+
+      expect(formatted).toContain('1. GPU 1 (8000 MB)');
+      expect(formatted).toContain('2. GPU 2 (16000 MB)');
+      expect(formatted).toContain('3. GPU 3');
+      expect(formatted).not.toContain('(  MB)'); // Should not show empty VRAM
+    });
+
+    it('should handle empty GPU array', () => {
+      const specs: SystemSpecs = {
+        serverName: 'test-server',
+        cpuModel: 'Test CPU',
+        cpuCores: 4,
+        cpuThreads: 8,
+        totalMemoryGB: 16,
+        osType: 'linux',
+        osVersion: 'Ubuntu 22.04',
+        gpus: []
+      };
+
+      const formatted = formatSystemSpecs(specs);
+
+      expect(formatted).toContain('GPUs:');
+      // Should still format even with empty array
+      expect(formatted).toContain('System Specifications');
+    });
+
+    it('should handle decimal memory values', () => {
+      const specs: SystemSpecs = {
+        serverName: 'test-server',
+        cpuModel: 'Test CPU',
+        cpuCores: 4,
+        cpuThreads: 8,
+        totalMemoryGB: 15.5,
+        osType: 'linux',
+        osVersion: 'Ubuntu 22.04',
+        gpus: [{ model: 'Test GPU' }]
+      };
+
+      const formatted = formatSystemSpecs(specs);
+
+      expect(formatted).toContain('Memory: 15.5 GB');
+    });
   });
 });
