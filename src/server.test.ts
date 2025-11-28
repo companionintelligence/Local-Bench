@@ -503,6 +503,41 @@ describe('Server Module', () => {
         server.emit('request', req, res);
       });
     });
+
+    describe('GET /api/prompts', () => {
+      it('should return available test prompts', (done) => {
+        const req = {
+          method: 'GET',
+          url: '/api/prompts'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            
+            const prompts = JSON.parse(data);
+            expect(Array.isArray(prompts)).toBe(true);
+            expect(prompts.length).toBeGreaterThan(0);
+            
+            // Verify prompt structure
+            prompts.forEach((prompt: any) => {
+              expect(prompt).toHaveProperty('id');
+              expect(prompt).toHaveProperty('name');
+              expect(prompt).toHaveProperty('prompt');
+              expect(prompt).toHaveProperty('description');
+            });
+            
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
   });
 
   describe('Edge cases and error handling', () => {
