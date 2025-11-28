@@ -460,9 +460,7 @@
             .prompt-preview {
                 font-size: 0.85rem;
             }
-        }
-        
-        @media (max-width: 768px) {
+            
             .button-group {
                 flex-direction: column;
             }
@@ -987,7 +985,7 @@
             
             // Validate custom prompt if selected
             const promptConfig = getPromptConfig();
-            if (promptConfig.customPrompt !== undefined && !promptConfig.customPrompt) {
+            if ('customPrompt' in promptConfig && promptConfig.customPrompt === '') {
                 showBenchmarkAlert('Please enter a custom prompt or select a predefined test.', 'error');
                 return;
             }

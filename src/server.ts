@@ -156,7 +156,12 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
             promptToUse = data.customPrompt.trim();
           } else if (data.promptId) {
             const selectedPrompt = TEST_PROMPTS.find(p => p.id === data.promptId);
-            promptToUse = selectedPrompt?.prompt;
+            if (!selectedPrompt) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Invalid prompt ID: ${data.promptId}` }));
+              return;
+            }
+            promptToUse = selectedPrompt.prompt;
           }
           
           // Run benchmarks
