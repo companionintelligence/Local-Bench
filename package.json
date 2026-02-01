@@ -8,6 +8,7 @@
     "benchmark": "npm run build && node dist/benchmark.js",
     "server": "npm run build && node dist/server.js",
     "start": "npm run build && node dist/server.js",
+    "strix-halo": "npm run build && node dist/strixHaloCli.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
