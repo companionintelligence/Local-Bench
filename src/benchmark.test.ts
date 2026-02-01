@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { benchmarkModel, checkModelAvailable, saveResultsToCSV, saveResultsToDatabase } from './benchmark';
+import { benchmarkModel, checkModelAvailable, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS } from './benchmark';
 import * as database from './database';
 import * as systemSpecs from './systemSpecs';
 
@@ -163,6 +163,84 @@ describe('Benchmark Module', () => {
           timeout: 120000
         })
       );
+    });
+
+    it('should use custom prompt when provided', async () => {
+      const mockResponse = {
+        data: {
+          response: 'Custom response',
+          eval_count: 75
+        }
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+      const customPrompt = 'Write a haiku about programming.';
+
+      await benchmarkModel('test-model', customPrompt);
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/generate'),
+        expect.objectContaining({
+          model: 'test-model',
+          prompt: customPrompt,
+          stream: false
+        }),
+        expect.objectContaining({
+          timeout: 120000
+        })
+      );
+    });
+
+    it('should use default prompt when no custom prompt is provided', async () => {
+      const mockResponse = {
+        data: {
+          response: 'Default response',
+          eval_count: 60
+        }
+      };
+
+      mockedAxios.post.mockResolvedValue(mockResponse);
+
+      await benchmarkModel('test-model');
+
+      expect(mockedAxios.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/generate'),
+        expect.objectContaining({
+          prompt: TEST_PROMPTS[0].prompt // Should use default (first) prompt
+        }),
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('TEST_PROMPTS', () => {
+    it('should have multiple test prompts defined', () => {
+      expect(TEST_PROMPTS.length).toBeGreaterThan(1);
+    });
+
+    it('should have required properties for each prompt', () => {
+      TEST_PROMPTS.forEach(prompt => {
+        expect(prompt).toHaveProperty('id');
+        expect(prompt).toHaveProperty('name');
+        expect(prompt).toHaveProperty('prompt');
+        expect(prompt).toHaveProperty('description');
+        expect(typeof prompt.id).toBe('string');
+        expect(typeof prompt.name).toBe('string');
+        expect(typeof prompt.prompt).toBe('string');
+        expect(typeof prompt.description).toBe('string');
+      });
+    });
+
+    it('should have unique IDs for each prompt', () => {
+      const ids = TEST_PROMPTS.map(p => p.id);
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).toBe(ids.length);
+    });
+
+    it('should have non-empty prompts', () => {
+      TEST_PROMPTS.forEach(prompt => {
+        expect(prompt.prompt.trim().length).toBeGreaterThan(0);
+      });
     });
   });
 

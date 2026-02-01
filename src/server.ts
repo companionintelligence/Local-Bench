@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase } from './database';
-import { checkModelAvailable, benchmarkModel, saveResultsToCSV, saveResultsToDatabase } from './benchmark';
+import { checkModelAvailable, benchmarkModel, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS } from './benchmark';
 import axios from 'axios';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -16,6 +16,8 @@ interface MimeTypes {
 
 interface BenchmarkRequest {
   models: string[];
+  promptId?: string;
+  customPrompt?: string;
 }
 
 const mimeTypes: MimeTypes = {
@@ -90,6 +92,16 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
     }
   }
   
+  // API endpoint: Get available test prompts
+  if (url === '/api/prompts') {
+    res.writeHead(200, { 
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify(TEST_PROMPTS));
+    return true;
+  }
+  
   // API endpoint: Get available models from Ollama
   if (url === '/api/models') {
     try {
@@ -138,10 +150,24 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
             return;
           }
           
+          // Determine prompt to use
+          let promptToUse: string | undefined;
+          if (data.customPrompt && data.customPrompt.trim()) {
+            promptToUse = data.customPrompt.trim();
+          } else if (data.promptId) {
+            const selectedPrompt = TEST_PROMPTS.find(p => p.id === data.promptId);
+            if (!selectedPrompt) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Invalid prompt ID: ${data.promptId}` }));
+              return;
+            }
+            promptToUse = selectedPrompt.prompt;
+          }
+          
           // Run benchmarks
           const results = [];
           for (const model of models) {
-            const result = await benchmarkModel(model);
+            const result = await benchmarkModel(model, promptToUse);
             results.push(result);
           }
           

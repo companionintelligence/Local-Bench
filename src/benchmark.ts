@@ -8,8 +8,62 @@ import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
 
 // Configuration
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
-const TEST_PROMPT = 'Write a short paragraph about artificial intelligence.';
 const CSV_FILE = path.join(__dirname, '..', 'benchmark_results.csv');
+
+// Predefined test prompts for benchmarking
+export const TEST_PROMPTS = [
+  {
+    id: 'ai-paragraph',
+    name: 'AI Paragraph',
+    prompt: 'Write a short paragraph about artificial intelligence.',
+    description: 'Basic text generation about AI'
+  },
+  {
+    id: 'code-python',
+    name: 'Python Function',
+    prompt: 'Write a Python function that calculates the factorial of a number recursively.',
+    description: 'Code generation test'
+  },
+  {
+    id: 'math-problem',
+    name: 'Math Problem',
+    prompt: 'Solve this step by step: If a train travels at 60 mph for 2.5 hours, then at 80 mph for 1.5 hours, what is the total distance traveled?',
+    description: 'Mathematical reasoning'
+  },
+  {
+    id: 'creative-story',
+    name: 'Creative Story',
+    prompt: 'Write a very short story (3-4 sentences) about a robot learning to paint.',
+    description: 'Creative writing test'
+  },
+  {
+    id: 'explain-concept',
+    name: 'Explain Concept',
+    prompt: 'Explain quantum computing to a 10-year-old in simple terms.',
+    description: 'Explanation and simplification'
+  },
+  {
+    id: 'summarize',
+    name: 'Summarization',
+    prompt: 'Summarize the key benefits of renewable energy sources in 2-3 sentences.',
+    description: 'Text summarization'
+  },
+  {
+    id: 'translation',
+    name: 'Translation',
+    prompt: 'Translate "Hello, how are you today?" to French, Spanish, and German.',
+    description: 'Multi-language translation'
+  },
+  {
+    id: 'logic-puzzle',
+    name: 'Logic Puzzle',
+    prompt: 'If all roses are flowers and some flowers fade quickly, can we conclude that some roses fade quickly? Explain your reasoning.',
+    description: 'Logical reasoning test'
+  }
+];
+
+// Default prompt (first one in the list)
+const DEFAULT_PROMPT = TEST_PROMPTS[0].prompt;
 
 // Default models to benchmark (all models from README)
 // This list matches the models listed in the README.md "Default LLM Tests" section
@@ -97,7 +151,8 @@ export async function checkModelAvailable(modelName: string): Promise<boolean> {
 /**
  * Benchmark a single model
  */
-export async function benchmarkModel(modelName: string): Promise<BenchmarkResult> {
+export async function benchmarkModel(modelName: string, customPrompt?: string): Promise<BenchmarkResult> {
+  const promptToUse = customPrompt || DEFAULT_PROMPT;
   console.log(`\nBenchmarking ${modelName}...`);
   
   try {
@@ -109,7 +164,7 @@ export async function benchmarkModel(modelName: string): Promise<BenchmarkResult
       `${OLLAMA_API_URL}/api/generate`,
       {
         model: modelName,
-        prompt: TEST_PROMPT,
+        prompt: promptToUse,
         stream: false
       },
       {

@@ -374,7 +374,93 @@
             color: #0c5460;
         }
         
+        /* Prompt Selector Styles */
+        .prompt-selector {
+            margin: 15px 0;
+        }
+        
+        .prompt-selector label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .prompt-select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .prompt-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        
+        .prompt-description {
+            margin-top: 8px;
+            font-size: 0.9rem;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .custom-prompt-container {
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .custom-prompt-container.active {
+            display: block;
+        }
+        
+        .custom-prompt-input {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+        }
+        
+        .custom-prompt-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        
+        .prompt-preview {
+            margin-top: 10px;
+            padding: 12px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            color: #444;
+            border-left: 3px solid #667eea;
+        }
+        
+        .prompt-preview-label {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        
         @media (max-width: 768px) {
+            .prompt-select,
+            .custom-prompt-input {
+                font-size: 16px; /* Prevents zoom on iOS */
+            }
+            
+            .prompt-preview {
+                font-size: 0.85rem;
+            }
+            
             .button-group {
                 flex-direction: column;
             }
@@ -404,6 +490,29 @@
                         <label>Select Models to Benchmark:</label>
                         <div class="model-list" id="modelList">
                             <p style="color: #666;">Loading available models...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="prompt-selector">
+                        <label>Select Test Prompt:</label>
+                        <select class="prompt-select" id="promptSelect" onchange="handlePromptChange()">
+                            <option value="">Loading prompts...</option>
+                        </select>
+                        <div class="prompt-description" id="promptDescription"></div>
+                        
+                        <div class="custom-prompt-container" id="customPromptContainer">
+                            <label style="margin-top: 10px;">Enter Custom Prompt:</label>
+                            <textarea 
+                                class="custom-prompt-input" 
+                                id="customPromptInput" 
+                                placeholder="Enter your custom benchmark prompt here..."
+                                oninput="updatePromptPreview()"
+                            ></textarea>
+                        </div>
+                        
+                        <div class="prompt-preview" id="promptPreview">
+                            <div class="prompt-preview-label">📝 Current Prompt:</div>
+                            <div id="promptPreviewText">Loading...</div>
                         </div>
                     </div>
                     
@@ -472,6 +581,77 @@
     
     <script>
         let chart = null;
+        let availablePrompts = [];
+        
+        // Load available test prompts
+        async function loadPrompts() {
+            try {
+                const response = await fetch('/api/prompts');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch prompts');
+                }
+                
+                availablePrompts = await response.json();
+                const promptSelect = document.getElementById('promptSelect');
+                
+                promptSelect.innerHTML = availablePrompts.map(prompt => 
+                    `<option value="${prompt.id}">${prompt.name}</option>`
+                ).join('') + '<option value="custom">✏️ Custom Prompt</option>';
+                
+                // Trigger initial update
+                handlePromptChange();
+            } catch (error) {
+                console.error('Failed to load prompts:', error);
+                document.getElementById('promptSelect').innerHTML = 
+                    '<option value="">Failed to load prompts</option>';
+            }
+        }
+        
+        // Handle prompt selection change
+        function handlePromptChange() {
+            const promptSelect = document.getElementById('promptSelect');
+            const customContainer = document.getElementById('customPromptContainer');
+            const descriptionDiv = document.getElementById('promptDescription');
+            const selectedValue = promptSelect.value;
+            
+            if (selectedValue === 'custom') {
+                customContainer.classList.add('active');
+                descriptionDiv.textContent = 'Enter your own custom prompt for benchmarking';
+                updatePromptPreview();
+            } else {
+                customContainer.classList.remove('active');
+                const selectedPrompt = availablePrompts.find(p => p.id === selectedValue);
+                if (selectedPrompt) {
+                    descriptionDiv.textContent = selectedPrompt.description;
+                    document.getElementById('promptPreviewText').textContent = selectedPrompt.prompt;
+                }
+            }
+        }
+        
+        // Update prompt preview for custom input
+        function updatePromptPreview() {
+            const customInput = document.getElementById('customPromptInput');
+            const previewText = document.getElementById('promptPreviewText');
+            
+            if (customInput.value.trim()) {
+                previewText.textContent = customInput.value.trim();
+            } else {
+                previewText.textContent = '(Enter a custom prompt above)';
+            }
+        }
+        
+        // Get current prompt configuration for API
+        function getPromptConfig() {
+            const promptSelect = document.getElementById('promptSelect');
+            const selectedValue = promptSelect.value;
+            
+            if (selectedValue === 'custom') {
+                const customPrompt = document.getElementById('customPromptInput').value.trim();
+                return { customPrompt };
+            } else {
+                return { promptId: selectedValue };
+            }
+        }
         
         async function loadSystemSpecs() {
             try {
@@ -803,6 +983,13 @@
                 return;
             }
             
+            // Validate custom prompt if selected
+            const promptConfig = getPromptConfig();
+            if ('customPrompt' in promptConfig && promptConfig.customPrompt === '') {
+                showBenchmarkAlert('Please enter a custom prompt or select a predefined test.', 'error');
+                return;
+            }
+            
             // Disable button and show progress
             const runBtn = document.getElementById('runBenchmarkBtn');
             runBtn.disabled = true;
@@ -826,7 +1013,10 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ models: selectedModels })
+                    body: JSON.stringify({ 
+                        models: selectedModels,
+                        ...promptConfig
+                    })
                 });
                 
                 if (!response.ok) {
@@ -886,6 +1076,7 @@
         loadSystemSpecs();
         loadResults();
         loadAvailableModels();
+        loadPrompts();
     </script>
 </body>
 </html>
