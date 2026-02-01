@@ -226,6 +226,8 @@ export async function benchmarkWithToolbox(options: StrixHaloBenchmarkOptions): 
   
   try {
     // Build llama-bench command
+    // Note: Paths are based on official AMD STRIX Halo toolbox structure
+    // Vulkan toolboxes install to /usr/sbin, ROCm toolboxes to /usr/local/bin
     const llamaBenchPath = options.toolboxName.includes('vulkan') 
       ? '/usr/sbin/llama-bench'
       : '/usr/local/bin/llama-bench';
@@ -233,7 +235,7 @@ export async function benchmarkWithToolbox(options: StrixHaloBenchmarkOptions): 
     const args = [
       `-m ${options.modelPath}`,
       `-ngl ${options.numGpuLayers || 99}`,
-      '-mmp 0' // no memory mapping
+      '-mmp 0' // -mmp: memory map policy, 0 = no memory mapping (required for STRIX Halo stability)
     ];
 
     if (options.flashAttention) {
@@ -244,7 +246,9 @@ export async function benchmarkWithToolbox(options: StrixHaloBenchmarkOptions): 
       args.push(`-c ${options.contextSize}`);
     }
 
-    // STRIX Halo requires flash attention and no-mmap for stability
+    // STRIX Halo ROCm backend optimization
+    // ROCBLAS_USE_HIPBLASLT=1 enables optimized BLAS library (default)
+    // Some toolboxes with 'hblt0' suffix specifically disable this for testing
     const envVars = options.toolboxName.includes('rocm') && !options.toolboxName.includes('hblt0')
       ? 'env ROCBLAS_USE_HIPBLASLT=1'
       : '';

@@ -226,7 +226,12 @@ function parseBenchmarkArgs(args: string[]): BenchmarkOptions {
     if (arg === '--toolbox' && i + 1 < args.length) {
       options.toolbox = args[++i];
     } else if (arg === '--context' && i + 1 < args.length) {
-      options.contextSize = parseInt(args[++i], 10);
+      const contextValue = parseInt(args[++i], 10);
+      if (isNaN(contextValue) || contextValue <= 0) {
+        console.error(`Error: Invalid context size '${args[i]}'. Must be a positive number.`);
+        process.exit(1);
+      }
+      options.contextSize = contextValue;
     } else if (arg === '--flash-attention') {
       options.flashAttention = true;
     } else if (arg === '--no-mmap') {
