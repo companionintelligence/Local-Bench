@@ -46,6 +46,7 @@ export function initDatabase(): Database.Database {
       os_version TEXT NOT NULL,
       motherboard TEXT,
       gpus TEXT NOT NULL,
+      strix_halo TEXT,
       timestamp TEXT NOT NULL
     )
   `);
@@ -115,8 +116,8 @@ export function saveSystemSpecs(specs: SystemSpecs): number {
     INSERT INTO system_specs (
       server_name, cpu_model, cpu_cores, cpu_threads, 
       total_memory_gb, os_type, os_version, motherboard, 
-      gpus, timestamp
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      gpus, strix_halo, timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = stmt.run(
@@ -129,6 +130,7 @@ export function saveSystemSpecs(specs: SystemSpecs): number {
     specs.osVersion,
     specs.motherboard || null,
     JSON.stringify(specs.gpus),
+    specs.strixHalo ? JSON.stringify(specs.strixHalo) : null,
     new Date().toISOString()
   );
 
@@ -224,7 +226,7 @@ export function getLatestSystemSpecs(): SystemSpecsRecord | null {
       id, server_name as serverName, cpu_model as cpuModel,
       cpu_cores as cpuCores, cpu_threads as cpuThreads,
       total_memory_gb as totalMemoryGB, os_type as osType,
-      os_version as osVersion, motherboard, gpus, timestamp
+      os_version as osVersion, motherboard, gpus, strix_halo as strixHalo, timestamp
     FROM system_specs
     ORDER BY timestamp DESC
     LIMIT 1
@@ -238,7 +240,8 @@ export function getLatestSystemSpecs(): SystemSpecsRecord | null {
 
   return {
     ...row,
-    gpus: safeJsonParse(row.gpus, [])
+    gpus: safeJsonParse(row.gpus, []),
+    strixHalo: row.strixHalo ? safeJsonParse(row.strixHalo, undefined) : undefined
   };
 }
 
@@ -253,7 +256,7 @@ export function getAllSystemSpecs(): SystemSpecsRecord[] {
       id, server_name as serverName, cpu_model as cpuModel,
       cpu_cores as cpuCores, cpu_threads as cpuThreads,
       total_memory_gb as totalMemoryGB, os_type as osType,
-      os_version as osVersion, motherboard, gpus, timestamp
+      os_version as osVersion, motherboard, gpus, strix_halo as strixHalo, timestamp
     FROM system_specs
     ORDER BY timestamp DESC
   `);
@@ -262,7 +265,8 @@ export function getAllSystemSpecs(): SystemSpecsRecord[] {
   
   return rows.map(row => ({
     ...row,
-    gpus: safeJsonParse(row.gpus, [])
+    gpus: safeJsonParse(row.gpus, []),
+    strixHalo: row.strixHalo ? safeJsonParse(row.strixHalo, undefined) : undefined
   }));
 }
 
@@ -280,7 +284,7 @@ export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkRes
       ss.server_name as serverName, ss.cpu_model as cpuModel,
       ss.cpu_cores as cpuCores, ss.cpu_threads as cpuThreads,
       ss.total_memory_gb as totalMemoryGB, ss.os_type as osType,
-      ss.os_version as osVersion, ss.motherboard, ss.gpus
+      ss.os_version as osVersion, ss.motherboard, ss.gpus, ss.strix_halo as strixHalo
     FROM benchmark_results br
     LEFT JOIN system_specs ss ON br.system_specs_id = ss.id
     ORDER BY br.timestamp DESC
@@ -323,6 +327,7 @@ function mapResultsWithSpecs(rows: any[]): Array<BenchmarkResult & { systemSpecs
         osVersion: row.osVersion,
         motherboard: row.motherboard,
         gpus: safeJsonParse(row.gpus, []),
+        strixHalo: row.strixHalo ? safeJsonParse(row.strixHalo, undefined) : undefined,
         timestamp: row.timestamp
       };
     }

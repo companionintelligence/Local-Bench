@@ -1,6 +1,6 @@
 # Local-Bench 🚀
 
-A tool for benchmarking local LLM (Large Language Model) performance via the Ollama API. This tool measures the token generation speed of different models and presents the results in an interactive web interface with tables and charts.
+A tool for benchmarking local LLM (Large Language Model) performance via the Ollama API and AMD STRIX Halo GPUs. This tool measures the token generation speed of different models and presents the results in an interactive web interface with tables and charts.
 <img width="1280" height="1432" alt="image" src="https://github.com/user-attachments/assets/ce2bfe4f-4fd5-437f-8283-0ac2507f6cf1" />
 
 
@@ -8,18 +8,25 @@ A tool for benchmarking local LLM (Large Language Model) performance via the Oll
 
 - 📊 Benchmark multiple LLM models with a single command
 - ⚡ Measure tokens per second for each model
-- 💾 Store results in CSV format
+- 💾 Store results in CSV format and SQLite database
 - 🌐 Beautiful web interface with:
   - Interactive bar charts
   - Detailed results table
   - Performance statistics
   - Real-time refresh capability
+- 🎮 **NEW: AMD STRIX Halo GPU support** for llama.cpp benchmarking
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v14 or higher)
-- [Ollama](https://ollama.ai/) installed and running locally
-- At least one LLM model downloaded in Ollama
+- **For Ollama benchmarks:**
+  - [Ollama](https://ollama.ai/) installed and running locally
+  - At least one LLM model downloaded in Ollama
+- **For AMD STRIX Halo benchmarks:**
+  - AMD Ryzen AI Max "Strix Halo" APU
+  - Fedora 42/43 or Ubuntu 24.04
+  - Toolbox (podman-toolbox) installed
+  - See [STRIX_HALO.md](STRIX_HALO.md) for detailed requirements
 
 ## Installation
 
@@ -50,7 +57,9 @@ ollama pull codellama
 
 ## Usage
 
-### Running Benchmarks
+### Ollama Benchmarks
+
+#### Running Benchmarks
 
 **Default models:**
 ```bash
@@ -70,6 +79,28 @@ You can specify any models you have installed in Ollama.
 ```bash
 OLLAMA_API_URL=http://localhost:11434 npm run benchmark
 ```
+
+### AMD STRIX Halo Benchmarks
+
+For AMD Ryzen AI Max "Strix Halo" GPU benchmarking with llama.cpp:
+
+**Detect STRIX Halo GPU:**
+```bash
+npm run strix-halo detect
+```
+
+**Setup toolbox (one-time):**
+```bash
+npm run strix-halo setup llama-rocm-7.2
+```
+
+**Run benchmark:**
+```bash
+npm run strix-halo benchmark /path/to/model.gguf --toolbox llama-rocm-7.2
+```
+
+**See full documentation:**
+[STRIX_HALO.md](STRIX_HALO.md) - Complete guide for AMD STRIX Halo integration
 
 ### Viewing Results
 

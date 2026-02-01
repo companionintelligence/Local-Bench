@@ -1,5 +1,6 @@
 import * as si from 'systeminformation';
 import * as os from 'os';
+import { detectStrixHalo, StrixHaloInfo } from './strixHalo';
 
 export interface SystemSpecs {
   serverName: string;
@@ -14,6 +15,7 @@ export interface SystemSpecs {
     model: string;
     vram?: number;
   }>;
+  strixHalo?: StrixHaloInfo;
 }
 
 /**
@@ -21,12 +23,13 @@ export interface SystemSpecs {
  */
 export async function getSystemSpecs(): Promise<SystemSpecs> {
   try {
-    const [cpu, mem, osInfo, graphics, baseboard] = await Promise.all([
+    const [cpu, mem, osInfo, graphics, baseboard, strixHalo] = await Promise.all([
       si.cpu(),
       si.mem(),
       si.osInfo(),
       si.graphics(),
-      si.baseboard()
+      si.baseboard(),
+      detectStrixHalo()
     ]);
 
     const gpus = graphics.controllers.map(gpu => ({
@@ -45,7 +48,8 @@ export async function getSystemSpecs(): Promise<SystemSpecs> {
       motherboard: baseboard.manufacturer && baseboard.model 
         ? `${baseboard.manufacturer} ${baseboard.model}` 
         : undefined,
-      gpus: gpus.length > 0 ? gpus : [{ model: 'No GPU detected' }]
+      gpus: gpus.length > 0 ? gpus : [{ model: 'No GPU detected' }],
+      strixHalo: strixHalo.detected ? strixHalo : undefined
     };
   } catch (error) {
     console.error('Error collecting system specs:', error);
@@ -86,6 +90,18 @@ export function formatSystemSpecs(specs: SystemSpecs): string {
     const vramStr = gpu.vram ? ` (${gpu.vram} MB)` : '';
     lines.push(`  ${index + 1}. ${gpu.model}${vramStr}`);
   });
+
+  if (specs.strixHalo) {
+    lines.push('');
+    lines.push('AMD STRIX Halo:');
+    lines.push(`  GPU: ${specs.strixHalo.gpuModel || 'Detected'}`);
+    if (specs.strixHalo.rocmVersion) {
+      lines.push(`  ROCm: ${specs.strixHalo.rocmVersion}`);
+    }
+    if (specs.strixHalo.vulkanSupport !== undefined) {
+      lines.push(`  Vulkan: ${specs.strixHalo.vulkanSupport ? 'Available' : 'Not available'}`);
+    }
+  }
 
   return lines.join('\n');
 }
