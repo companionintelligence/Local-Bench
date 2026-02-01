@@ -235,7 +235,7 @@ export async function benchmarkWithToolbox(options: StrixHaloBenchmarkOptions): 
     const args = [
       `-m ${options.modelPath}`,
       `-ngl ${options.numGpuLayers || 99}`,
-      '-mmp 0' // -mmp: memory map policy, 0 = no memory mapping (required for STRIX Halo stability)
+      '-mmp 0' // mmp: memory map policy, 0 = no memory mapping (required for STRIX Halo stability)
     ];
 
     if (options.flashAttention) {
