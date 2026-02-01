@@ -96,6 +96,7 @@ pip install huggingface-hub hf-transfer
 HF_HUB_ENABLE_HF_TRANSFER=1 huggingface-cli download \
   unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF \
   BF16/Qwen3-Coder-30B-A3B-Instruct-BF16-00001-of-00002.gguf \
+  BF16/Qwen3-Coder-30B-A3B-Instruct-BF16-00002-of-00002.gguf \
   --local-dir models/qwen3-coder-30B/
 ```
 
