@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { benchmarkModel, checkModelAvailable, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS } from './benchmark';
+import { benchmarkModel, checkModelAvailable, getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, SUPPORTED_OLLAMA_MODELS, TEST_PROMPTS } from './benchmark';
 import * as database from './database';
 import * as systemSpecs from './systemSpecs';
 
@@ -215,7 +215,7 @@ describe('Benchmark Module', () => {
 
   describe('TEST_PROMPTS', () => {
     it('should have multiple test prompts defined', () => {
-      expect(TEST_PROMPTS.length).toBeGreaterThan(1);
+      expect(TEST_PROMPTS.length).toBeGreaterThan(8);
     });
 
     it('should have required properties for each prompt', () => {
@@ -224,10 +224,14 @@ describe('Benchmark Module', () => {
         expect(prompt).toHaveProperty('name');
         expect(prompt).toHaveProperty('prompt');
         expect(prompt).toHaveProperty('description');
+        expect(prompt).toHaveProperty('category');
+        expect(prompt).toHaveProperty('type');
         expect(typeof prompt.id).toBe('string');
         expect(typeof prompt.name).toBe('string');
         expect(typeof prompt.prompt).toBe('string');
         expect(typeof prompt.description).toBe('string');
+        expect(typeof prompt.category).toBe('string');
+        expect(typeof prompt.type).toBe('string');
       });
     });
 
@@ -241,6 +245,46 @@ describe('Benchmark Module', () => {
       TEST_PROMPTS.forEach(prompt => {
         expect(prompt.prompt.trim().length).toBeGreaterThan(0);
       });
+    });
+
+    it('should cover multiple benchmark categories and types', () => {
+      const categories = new Set(TEST_PROMPTS.map(prompt => prompt.category));
+      const types = new Set(TEST_PROMPTS.map(prompt => prompt.type));
+
+      expect(categories.size).toBeGreaterThan(4);
+      expect(types.size).toBeGreaterThan(6);
+    });
+  });
+
+  describe('getOllamaModelCatalog', () => {
+    it('should include the curated supported Ollama catalog', () => {
+      const catalog = getOllamaModelCatalog();
+
+      expect(catalog.length).toBeGreaterThanOrEqual(SUPPORTED_OLLAMA_MODELS.length);
+      expect(catalog[0]).toHaveProperty('installed');
+      expect(catalog[0]).toHaveProperty('supported');
+      expect(catalog[0]).toHaveProperty('inputs');
+    });
+
+    it('should mark installed catalog models and include installed-only models', () => {
+      const installedModels = [
+        { name: 'qwen3:8b', size: 5 * 1024 * 1024 * 1024 },
+        { name: 'custom-model:latest', size: 512 * 1024 * 1024 }
+      ];
+
+      const catalog = getOllamaModelCatalog(installedModels as any);
+      const installedCatalogModel = catalog.find(model => model.name === 'qwen3:8b');
+      const installedOnlyModel = catalog.find(model => model.name === 'custom-model:latest');
+
+      expect(installedCatalogModel?.installed).toBe(true);
+      expect(installedCatalogModel?.supported).toBe(true);
+      expect(installedOnlyModel).toMatchObject({
+        name: 'custom-model:latest',
+        installed: true,
+        supported: false,
+        source: 'installed'
+      });
+      expect(installedOnlyModel?.size).toBe('512MB');
     });
   });
 

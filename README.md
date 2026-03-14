@@ -8,8 +8,11 @@ A tool for benchmarking local LLM (Large Language Model) performance via the Oll
 
 - 📊 Benchmark multiple LLM models with a single command
 - ⚡ Measure tokens per second for each model
+- 🧪 Run a broader benchmark library with coding, reasoning, extraction, planning, summarization, translation, and instruction-following prompts
 - 💾 Store results in CSV format and SQLite database
 - 🌐 Beautiful web interface with:
+  - Installed vs. supported Ollama model catalog
+  - Benchmark prompt library with benchmark types
   - Interactive bar charts
   - Detailed results table
   - Performance statistics
@@ -66,11 +69,11 @@ ollama pull codellama
 npm run benchmark
 ```
 
-This will benchmark the default models: llama2, mistral, codellama, and phi.
+This benchmarks the curated Ollama support catalog defined in `src/benchmark.ts`. You can also run a smaller selection by passing model names on the command line.
 
 **Custom models:**
 ```bash
-node benchmark.js llama2 mistral phi
+node dist/benchmark.js llama3.2:3b qwen3:8b gemma3:4b
 ```
 
 You can specify any models you have installed in Ollama.
@@ -115,6 +118,8 @@ http://localhost:3000
 ```
 
 3. The web interface will display:
+   - Installed and supported Ollama model catalog entries
+   - A richer benchmark prompt library with prompt categories and benchmark types
    - Summary statistics (total models, average speed, fastest model)
    - Interactive bar chart comparing model performance
    - Detailed results table with all benchmark data
@@ -139,11 +144,11 @@ mistral,52.18,125,2.40,2024-01-15T10:32:30.000Z,Success
 
 ## Configuration
 
-You can customize the following by editing `benchmark.js`:
+You can customize the following by editing `src/benchmark.ts`:
 
 - `OLLAMA_API_URL`: Ollama API endpoint (default: `http://localhost:11434`)
-- `TEST_PROMPT`: The prompt used for benchmarking
-- `DEFAULT_MODELS`: Default models to benchmark
+- `TEST_PROMPTS`: The benchmark prompt library used by the CLI and UI
+- `SUPPORTED_OLLAMA_MODELS`: The curated Ollama support catalog and default benchmark targets
 
 ## Troubleshooting
 
@@ -165,7 +170,7 @@ You can customize the following by editing `benchmark.js`:
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-# Default LLM Tests
+# Supported Ollama Catalog
 
 | Name | Size | Context | Input |
 | --- | --- | --- | --- |
@@ -211,4 +216,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 | deepseek-v3.1:671b latest | 404GB | 160K | Text |
 | deepseek-r1:671b | 404GB | 160K | Text |
 | minmax m2 | 968GB | 200K | Text |
-

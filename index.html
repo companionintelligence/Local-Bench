@@ -168,11 +168,54 @@
         
         .chart-container {
             position: relative;
-            height: 400px;
+            min-height: 400px;
             margin-top: 20px;
             padding: 20px;
             background: #f9f9f9;
             border-radius: 8px;
+        }
+
+        .chart-fallback {
+            display: none;
+            gap: 12px;
+            flex-direction: column;
+        }
+
+        .chart-fallback.active {
+            display: flex;
+        }
+
+        .chart-fallback-row {
+            display: grid;
+            grid-template-columns: minmax(120px, 180px) 1fr auto;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .chart-fallback-label {
+            font-weight: 600;
+            color: #333;
+            word-break: break-word;
+        }
+
+        .chart-fallback-bar {
+            width: 100%;
+            min-height: 24px;
+            border-radius: 999px;
+            background: #e9ecfb;
+            overflow: hidden;
+        }
+
+        .chart-fallback-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .chart-fallback-value {
+            font-weight: 600;
+            color: #555;
+            white-space: nowrap;
         }
         
         .stats-grid {
@@ -264,6 +307,60 @@
             display: block;
             margin: 8px 0;
             cursor: pointer;
+        }
+
+        .model-checkbox.disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+        }
+
+        .model-card-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .model-meta {
+            margin-top: 6px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .tag-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: #eef1ff;
+            color: #4a57a3;
+        }
+
+        .tag-success {
+            background: #dff3e4;
+            color: #1f7a3f;
+        }
+
+        .tag-muted {
+            background: #f1f3f5;
+            color: #6c757d;
+        }
+
+        .catalog-summary {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #555;
         }
         
         .model-checkbox input {
@@ -450,6 +547,36 @@
             margin-bottom: 5px;
             color: #333;
         }
+
+        .prompt-library {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+        }
+
+        .prompt-card {
+            padding: 14px;
+            border: 1px solid #e8eaf6;
+            border-radius: 10px;
+            background: #fbfbff;
+        }
+
+        .prompt-card h3 {
+            font-size: 1rem;
+            margin-bottom: 8px;
+            color: #333;
+        }
+
+        .prompt-card p {
+            font-size: 0.9rem;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .chart-insights {
+            margin-top: 16px;
+        }
         
         @media (max-width: 768px) {
             .prompt-select,
@@ -491,6 +618,7 @@
                         <div class="model-list" id="modelList">
                             <p style="color: #666;">Loading available models...</p>
                         </div>
+                        <div class="catalog-summary" id="modelCatalogSummary"></div>
                     </div>
                     
                     <div class="prompt-selector">
@@ -514,6 +642,7 @@
                             <div class="prompt-preview-label">📝 Current Prompt:</div>
                             <div id="promptPreviewText">Loading...</div>
                         </div>
+                        <div class="prompt-library" id="promptLibrary"></div>
                     </div>
                     
                     <div class="button-group">
@@ -551,7 +680,9 @@
                 <h2>📈 Performance Chart</h2>
                 <div class="chart-container">
                     <canvas id="benchmarkChart"></canvas>
+                    <div class="chart-fallback" id="chartFallback"></div>
                 </div>
+                <div class="chart-insights" id="chartInsights"></div>
             </div>
             
             <div class="section">
@@ -582,6 +713,61 @@
     <script>
         let chart = null;
         let availablePrompts = [];
+        let availableModels = [];
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function normalizeResult(result) {
+            const success = typeof result.success === 'boolean'
+                ? result.success
+                : String(result.status || '').toLowerCase() === 'success';
+
+            return {
+                model: result.model,
+                tokensPerSecond: Number(result.tokensPerSecond || 0),
+                totalTokens: Number(result.totalTokens || 0),
+                duration: Number(result.duration ?? result.durationSeconds ?? 0),
+                timestamp: result.timestamp,
+                status: success ? 'Success' : 'Failed',
+                success
+            };
+        }
+
+        function renderPromptLibrary(prompts) {
+            const promptLibrary = document.getElementById('promptLibrary');
+
+            promptLibrary.innerHTML = prompts.map(prompt => `
+                <div class="prompt-card">
+                    <div class="tag-row">
+                        <span class="tag">${escapeHtml(prompt.category)}</span>
+                        <span class="tag tag-muted">${escapeHtml(prompt.type)}</span>
+                    </div>
+                    <h3>${escapeHtml(prompt.name)}</h3>
+                    <p>${escapeHtml(prompt.description)}</p>
+                </div>
+            `).join('');
+        }
+
+        function updateModelCatalogSummary(models) {
+            const summary = document.getElementById('modelCatalogSummary');
+            const installedCount = models.filter(model => model.installed).length;
+            const supportedCount = models.filter(model => model.supported).length;
+            const customInstalledCount = models.filter(model => model.installed && !model.supported).length;
+
+            summary.innerHTML = `
+                <span class="tag tag-success">${installedCount} installed</span>
+                <span class="tag">${supportedCount} supported</span>
+                ${customInstalledCount > 0 ? `<span class="tag tag-muted">${customInstalledCount} custom installed</span>` : ''}
+                <div style="margin-top: 8px;">Disabled entries are part of the supported Ollama catalog but are not currently installed.</div>
+            `;
+        }
         
         // Load available test prompts
         async function loadPrompts() {
@@ -595,8 +781,10 @@
                 const promptSelect = document.getElementById('promptSelect');
                 
                 promptSelect.innerHTML = availablePrompts.map(prompt => 
-                    `<option value="${prompt.id}">${prompt.name}</option>`
+                    `<option value="${prompt.id}">${escapeHtml(prompt.name)} • ${escapeHtml(prompt.type)}</option>`
                 ).join('') + '<option value="custom">✏️ Custom Prompt</option>';
+
+                renderPromptLibrary(availablePrompts);
                 
                 // Trigger initial update
                 handlePromptChange();
@@ -622,7 +810,7 @@
                 customContainer.classList.remove('active');
                 const selectedPrompt = availablePrompts.find(p => p.id === selectedValue);
                 if (selectedPrompt) {
-                    descriptionDiv.textContent = selectedPrompt.description;
+                    descriptionDiv.textContent = `${selectedPrompt.category} • ${selectedPrompt.type} — ${selectedPrompt.description}`;
                     document.getElementById('promptPreviewText').textContent = selectedPrompt.prompt;
                 }
             }
@@ -708,7 +896,7 @@
                     throw new Error('API not available, trying CSV fallback');
                 }
                 
-                const results = await response.json();
+                const results = (await response.json()).map(normalizeResult);
                 
                 if (results.length === 0) {
                     showError('No benchmark results found. Please run the benchmark first.');
@@ -728,7 +916,7 @@
                     }
                     
                     const csvText = await response.text();
-                    const results = parseCSV(csvText);
+                    const results = parseCSV(csvText).map(normalizeResult);
                     
                     if (results.length === 0) {
                         showError('No benchmark results found. Please run the benchmark first.');
@@ -777,7 +965,7 @@
             results.forEach(result => {
                 const row = tbody.insertRow();
                 row.innerHTML = `
-                    <td><strong>${result.model}</strong></td>
+                    <td><strong>${escapeHtml(result.model)}</strong></td>
                     <td>${result.tokensPerSecond.toFixed(2)}</td>
                     <td>${result.totalTokens}</td>
                     <td>${result.duration.toFixed(2)}</td>
@@ -790,96 +978,131 @@
         }
         
         function displayChart(results) {
-            const ctx = document.getElementById('benchmarkChart');
+            const canvas = document.getElementById('benchmarkChart');
+            const ctx = canvas.getContext('2d');
+            const chartFallback = document.getElementById('chartFallback');
+            const chartInsights = document.getElementById('chartInsights');
             
             // Filter successful results and sort by tokens per second
             const successfulResults = results
-                .filter(r => r.status === 'Success' && r.tokensPerSecond > 0)
+                .filter(r => r.success && r.tokensPerSecond > 0)
                 .sort((a, b) => b.tokensPerSecond - a.tokensPerSecond);
             
             if (successfulResults.length === 0) {
-                ctx.parentElement.innerHTML = '<p class="info-message">No successful benchmarks to display in chart.</p>';
+                if (chart) {
+                    chart.destroy();
+                    chart = null;
+                }
+                canvas.style.display = 'none';
+                chartFallback.classList.remove('active');
+                chartFallback.innerHTML = '';
+                chartInsights.innerHTML = '<p class="info-message">No successful benchmarks to display in chart.</p>';
                 return;
             }
+
+            chartInsights.innerHTML = '';
+            chartFallback.innerHTML = '';
             
             const labels = successfulResults.map(r => r.model);
             const data = successfulResults.map(r => r.tokensPerSecond);
+            const highestSpeed = successfulResults[0].tokensPerSecond;
+            const averageSpeed = successfulResults.reduce((sum, result) => sum + result.tokensPerSecond, 0) / successfulResults.length;
+            const ChartLibrary = typeof window.Chart === 'function' ? window.Chart : null;
             
             // Destroy existing chart if it exists
             if (chart) {
                 chart.destroy();
             }
-            
-            chart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Tokens per Second',
-                        data: data,
-                        backgroundColor: [
-                            'rgba(102, 126, 234, 0.8)',
-                            'rgba(118, 75, 162, 0.8)',
-                            'rgba(102, 126, 234, 0.6)',
-                            'rgba(118, 75, 162, 0.6)',
-                            'rgba(102, 126, 234, 0.4)',
-                            'rgba(118, 75, 162, 0.4)'
-                        ],
-                        borderColor: [
-                            'rgba(102, 126, 234, 1)',
-                            'rgba(118, 75, 162, 1)',
-                            'rgba(102, 126, 234, 1)',
-                            'rgba(118, 75, 162, 1)',
-                            'rgba(102, 126, 234, 1)',
-                            'rgba(118, 75, 162, 1)'
-                        ],
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        title: {
-                            display: true,
-                            text: 'Model Performance Comparison',
-                            font: {
-                                size: 16,
-                                weight: 'bold'
-                            }
-                        }
+
+            if (ChartLibrary) {
+                canvas.style.display = 'block';
+                chartFallback.classList.remove('active');
+
+                chart = new ChartLibrary(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Tokens per Second',
+                            data: data,
+                            backgroundColor: successfulResults.map((_, index) =>
+                                index === 0 ? 'rgba(118, 75, 162, 0.85)' : 'rgba(102, 126, 234, 0.72)'
+                            ),
+                            borderColor: successfulResults.map((_, index) =>
+                                index === 0 ? 'rgba(118, 75, 162, 1)' : 'rgba(102, 126, 234, 1)'
+                            ),
+                            borderWidth: 2
+                        }]
                     },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
                             title: {
                                 display: true,
-                                text: 'Tokens per Second',
+                                text: 'Model Performance Comparison',
                                 font: {
+                                    size: 16,
                                     weight: 'bold'
                                 }
                             }
                         },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Model',
-                                font: {
-                                    weight: 'bold'
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Tokens per Second',
+                                    font: {
+                                        weight: 'bold'
+                                    }
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Model',
+                                    font: {
+                                        weight: 'bold'
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            });
+                });
+            } else {
+                chart = null;
+                canvas.style.display = 'none';
+                chartFallback.classList.add('active');
+                chartFallback.innerHTML = successfulResults.map(result => {
+                    const width = highestSpeed === 0 ? 0 : (result.tokensPerSecond / highestSpeed) * 100;
+                    return `
+                        <div class="chart-fallback-row">
+                            <div class="chart-fallback-label">${escapeHtml(result.model)}</div>
+                            <div class="chart-fallback-bar">
+                                <div class="chart-fallback-fill" style="width: ${width.toFixed(2)}%;"></div>
+                            </div>
+                            <div class="chart-fallback-value">${result.tokensPerSecond.toFixed(2)} t/s</div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            chartInsights.innerHTML = `
+                <div class="info-message">
+                    <strong>Top performer:</strong> ${escapeHtml(successfulResults[0].model)} at ${highestSpeed.toFixed(2)} tokens/s
+                    <br>
+                    <strong>Average successful throughput:</strong> ${averageSpeed.toFixed(2)} tokens/s across ${successfulResults.length} successful benchmark(s)
+                </div>
+            `;
         }
         
         function displayStats(results) {
             const statsGrid = document.getElementById('statsGrid');
-            const successfulResults = results.filter(r => r.status === 'Success' && r.tokensPerSecond > 0);
+            const successfulResults = results.filter(r => r.success && r.tokensPerSecond > 0);
             
             if (successfulResults.length === 0) {
                 statsGrid.innerHTML = '<p class="info-message">No successful benchmarks to display statistics.</p>';
@@ -915,7 +1138,7 @@
             const errorContainer = document.getElementById('errorContainer');
             errorContainer.innerHTML = `
                 <div class="error-message">
-                    <strong>⚠️ Error:</strong> ${message}
+                    <strong>⚠️ Error:</strong> ${escapeHtml(message)}
                 </div>
             `;
         }
@@ -932,28 +1155,51 @@
                     throw new Error('Failed to fetch models');
                 }
                 
-                const models = await response.json();
+                availableModels = await response.json();
                 const modelList = document.getElementById('modelList');
                 
-                if (models.length === 0) {
+                if (availableModels.length === 0) {
                     modelList.innerHTML = '<p style="color: #999;">No models found. Make sure Ollama is running and has models installed.</p>';
+                    document.getElementById('modelCatalogSummary').innerHTML = '';
                     return;
                 }
                 
-                modelList.innerHTML = models.map(model => `
-                    <label class="model-checkbox">
-                        <input type="checkbox" value="${model.name}" class="model-checkbox-input">
-                        ${model.name}
+                modelList.innerHTML = availableModels.map(model => `
+                    <label class="model-checkbox ${model.installed ? '' : 'disabled'}">
+                        <input
+                            type="checkbox"
+                            value="${escapeHtml(model.name)}"
+                            class="model-checkbox-input"
+                            ${model.installed ? '' : 'disabled'}
+                        >
+                        <div class="model-card-title">
+                            <span>${escapeHtml(model.name)}</span>
+                            <span class="tag ${model.installed ? 'tag-success' : 'tag-muted'}">
+                                ${model.installed ? 'Installed' : 'Not installed'}
+                            </span>
+                        </div>
+                        <div class="model-meta">
+                            ${model.family ? `${escapeHtml(model.family)} family` : 'Custom model'}
+                            ${model.size ? ` • ${escapeHtml(model.size)}` : ''}
+                            ${model.contextWindow ? ` • ${escapeHtml(model.contextWindow)} context` : ''}
+                        </div>
+                        <div class="tag-row">
+                            ${(model.inputs || ['Text']).map(input => `<span class="tag">${escapeHtml(input)}</span>`).join('')}
+                            ${model.supported ? '<span class="tag tag-muted">Catalog</span>' : '<span class="tag tag-muted">Installed only</span>'}
+                        </div>
                     </label>
                 `).join('');
+
+                updateModelCatalogSummary(availableModels);
             } catch (error) {
                 const modelList = document.getElementById('modelList');
                 modelList.innerHTML = '<p style="color: #c33;">Failed to load models. Make sure the server and Ollama are running.</p>';
+                document.getElementById('modelCatalogSummary').innerHTML = '';
             }
         }
         
         function selectAllModels() {
-            const checkboxes = document.querySelectorAll('.model-checkbox-input');
+            const checkboxes = document.querySelectorAll('.model-checkbox-input:not(:disabled)');
             checkboxes.forEach(cb => cb.checked = true);
         }
         
@@ -966,7 +1212,7 @@
             const alertContainer = document.getElementById('benchmarkAlert');
             const alertClass = type === 'success' ? 'alert-success' : 
                                type === 'error' ? 'alert-error' : 'alert-info';
-            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${escapeHtml(message)}</div>`;
         }
         
         function clearBenchmarkAlert() {
