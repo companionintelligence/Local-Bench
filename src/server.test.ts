@@ -601,7 +601,7 @@ describe('Server Module', () => {
         const res = {
           writeHead: jest.fn(),
           end: jest.fn((data) => {
-            expect(res.writeHead).toHaveBeenCalledWith(200, {
+            expect(res.writeHead).toHaveBeenCalledWith(503, {
               'Content-Type': 'application/json',
               'Access-Control-Allow-Origin': '*'
             });

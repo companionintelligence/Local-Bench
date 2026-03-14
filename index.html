@@ -725,9 +725,12 @@
         }
 
         function normalizeResult(result) {
+            const normalizedStatus = typeof result.status === 'string'
+                ? result.status.toLowerCase()
+                : '';
             const success = typeof result.success === 'boolean'
                 ? result.success
-                : String(result.status || '').toLowerCase() === 'success';
+                : normalizedStatus === 'success';
 
             return {
                 model: result.model,
@@ -755,17 +758,20 @@
             `).join('');
         }
 
-        function updateModelCatalogSummary(models) {
+        function updateModelCatalogSummary(models, options = {}) {
             const summary = document.getElementById('modelCatalogSummary');
             const installedCount = models.filter(model => model.installed).length;
             const supportedCount = models.filter(model => model.supported).length;
             const customInstalledCount = models.filter(model => model.installed && !model.supported).length;
+            const availabilityNote = options.ollamaUnavailable
+                ? '<div style="margin-top: 8px; color: #a05a00;">Ollama is currently unavailable, so only the curated support catalog is shown.</div>'
+                : '<div style="margin-top: 8px;">Disabled entries are part of the supported Ollama catalog but are not currently installed.</div>';
 
             summary.innerHTML = `
                 <span class="tag tag-success">${installedCount} installed</span>
                 <span class="tag">${supportedCount} supported</span>
                 ${customInstalledCount > 0 ? `<span class="tag tag-muted">${customInstalledCount} custom installed</span>` : ''}
-                <div style="margin-top: 8px;">Disabled entries are part of the supported Ollama catalog but are not currently installed.</div>
+                ${availabilityNote}
             `;
         }
         
@@ -1077,6 +1083,7 @@
                 chart = null;
                 canvas.style.display = 'none';
                 chartFallback.classList.add('active');
+                // successfulResults already filters to tokensPerSecond > 0, so this width guard is defensive.
                 chartFallback.innerHTML = successfulResults.map(result => {
                     const width = highestSpeed === 0 ? 0 : (result.tokensPerSecond / highestSpeed) * 100;
                     return `
@@ -1151,10 +1158,11 @@
         async function loadAvailableModels() {
             try {
                 const response = await fetch('/api/models');
-                if (!response.ok) {
+                const isCatalogFallbackResponse = response.status === 503;
+                if (!response.ok && !isCatalogFallbackResponse) {
                     throw new Error('Failed to fetch models');
                 }
-                
+
                 availableModels = await response.json();
                 const modelList = document.getElementById('modelList');
                 
@@ -1190,7 +1198,7 @@
                     </label>
                 `).join('');
 
-                updateModelCatalogSummary(availableModels);
+                updateModelCatalogSummary(availableModels, { ollamaUnavailable: isCatalogFallbackResponse });
             } catch (error) {
                 const modelList = document.getElementById('modelList');
                 modelList.innerHTML = '<p style="color: #c33;">Failed to load models. Make sure the server and Ollama are running.</p>';

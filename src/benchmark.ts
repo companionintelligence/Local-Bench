@@ -208,7 +208,7 @@ function inferModelFamily(modelName: string): string {
 }
 
 function formatModelSize(bytes?: number): string | undefined {
-  if (!bytes || bytes <= 0) {
+  if (bytes == null || bytes < 0) {
     return undefined;
   }
 
@@ -250,8 +250,8 @@ export function getOllamaModelCatalog(installedModels: OllamaModel[] = []): Olla
     }));
 
   return [...catalogEntries, ...installedOnlyEntries].sort((a, b) =>
-    Number(b.installed) - Number(a.installed) ||
-    Number(b.supported) - Number(a.supported) ||
+    (b.installed ? 1 : 0) - (a.installed ? 1 : 0) ||
+    (b.supported ? 1 : 0) - (a.supported ? 1 : 0) ||
     a.name.localeCompare(b.name)
   );
 }

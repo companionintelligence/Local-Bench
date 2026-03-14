@@ -286,6 +286,14 @@ describe('Benchmark Module', () => {
       });
       expect(installedOnlyModel?.size).toBe('512MB');
     });
+
+    it('should preserve zero-byte installed model sizes instead of dropping them', () => {
+      const catalog = getOllamaModelCatalog([
+        { name: 'empty-model:latest', size: 0 }
+      ] as any);
+
+      expect(catalog.find(model => model.name === 'empty-model:latest')?.size).toBe('0B');
+    });
   });
 
   describe('saveResultsToCSV', () => {

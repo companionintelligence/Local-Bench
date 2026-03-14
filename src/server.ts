@@ -114,7 +114,7 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
       res.end(JSON.stringify(getOllamaModelCatalog(models)));
       return true;
     } catch (error) {
-      res.writeHead(200, { 
+      res.writeHead(503, { 
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       });
