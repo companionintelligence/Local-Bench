@@ -1,5 +1,6 @@
 import * as http from 'http';
 import * as fs from 'fs';
+import axios from 'axios';
 import { server } from './server';
 import * as database from './database';
 import { BenchmarkResult } from './database';
@@ -11,6 +12,10 @@ const mockedFs = fs as jest.Mocked<typeof fs>;
 // Mock database module
 jest.mock('./database');
 const mockedDatabase = database as jest.Mocked<typeof database>;
+
+// Mock axios
+jest.mock('axios');
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 describe('Server Module', () => {
   beforeEach(() => {
@@ -531,6 +536,80 @@ describe('Server Module', () => {
               expect(prompt).toHaveProperty('description');
             });
             
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+
+    describe('GET /api/models', () => {
+      it('should merge installed models with the supported catalog', (done) => {
+        mockedAxios.get.mockResolvedValue({
+          data: {
+            models: [
+              { name: 'qwen3:8b' },
+              { name: 'custom-model:latest', size: 512 * 1024 * 1024 }
+            ]
+          }
+        });
+
+        const req = {
+          method: 'GET',
+          url: '/api/models'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+
+            const models = JSON.parse(data);
+            const installedCatalogModel = models.find((model: any) => model.name === 'qwen3:8b');
+            const installedOnlyModel = models.find((model: any) => model.name === 'custom-model:latest');
+
+            expect(installedCatalogModel).toMatchObject({
+              name: 'qwen3:8b',
+              installed: true,
+              supported: true
+            });
+            expect(installedOnlyModel).toMatchObject({
+              name: 'custom-model:latest',
+              installed: true,
+              supported: false,
+              source: 'installed'
+            });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
+      it('should fall back to the supported catalog when Ollama is unavailable', (done) => {
+        mockedAxios.get.mockRejectedValue(new Error('Connection refused'));
+
+        const req = {
+          method: 'GET',
+          url: '/api/models'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(503, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+
+            const models = JSON.parse(data);
+            expect(Array.isArray(models)).toBe(true);
+            expect(models.length).toBeGreaterThan(0);
+            expect(models.every((model: any) => model.installed === false)).toBe(true);
             done();
           })
         } as unknown as http.ServerResponse;

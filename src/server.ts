@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase } from './database';
-import { checkModelAvailable, benchmarkModel, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS } from './benchmark';
+import { benchmarkModel, getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS } from './benchmark';
 import axios from 'axios';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -111,11 +111,14 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       });
-      res.end(JSON.stringify(models));
+      res.end(JSON.stringify(getOllamaModelCatalog(models)));
       return true;
     } catch (error) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Failed to fetch models from Ollama' }));
+      res.writeHead(503, { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(getOllamaModelCatalog()));
       return true;
     }
   }
