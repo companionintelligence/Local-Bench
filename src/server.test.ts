@@ -118,8 +118,9 @@ describe('Server Module', () => {
       const mockContent = Buffer.from('<html>Index</html>');
 
       (mockedFs.readFile as unknown as jest.Mock).mockImplementation(
-        (path: string, callback: (err: null, data: Buffer) => void) => {
-          expect(path).toBe('./index.html');
+        (filePath: string, callback: (err: null, data: Buffer) => void) => {
+          // Root resolves to <cwd>/index.html, contained inside the static root.
+          expect(filePath).toBe(require('path').join(process.cwd(), 'index.html'));
           callback(null, mockContent);
         }
       );
@@ -132,6 +133,37 @@ describe('Server Module', () => {
       const res = {
         writeHead: jest.fn(),
         end: jest.fn(() => {
+          done();
+        })
+      } as unknown as http.ServerResponse;
+
+      server.emit('request', req, res);
+    });
+
+    it('should contain path traversal attempts inside the static root', (done) => {
+      const root = process.cwd();
+      // A traversal attempt must resolve to a path *inside* the static root, never
+      // to the real filesystem location it is trying to escape to.
+      (mockedFs.readFile as unknown as jest.Mock).mockImplementation(
+        (filePath: string, callback: (err: NodeJS.ErrnoException) => void) => {
+          expect(filePath.startsWith(root + require('path').sep)).toBe(true);
+          expect(filePath).not.toBe('/etc/passwd');
+          const error = new Error('File not found') as NodeJS.ErrnoException;
+          error.code = 'ENOENT';
+          callback(error);
+        }
+      );
+
+      const req = {
+        method: 'GET',
+        url: '/../../../etc/passwd'
+      } as http.IncomingMessage;
+
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(404, { 'Content-Type': 'text/html' });
+          expect(data).toContain('404');
           done();
         })
       } as unknown as http.ServerResponse;

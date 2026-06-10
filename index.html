@@ -905,10 +905,10 @@
                 const results = (await response.json()).map(normalizeResult);
                 
                 if (results.length === 0) {
-                    showError('No benchmark results found. Please run the benchmark first.');
+                    showEmptyState();
                     return;
                 }
-                
+
                 displayResults(results);
                 displayChart(results);
                 displayStats(results);
@@ -920,21 +920,21 @@
                     if (!response.ok) {
                         throw new Error('Results not found. Please run the benchmark first.');
                     }
-                    
+
                     const csvText = await response.text();
                     const results = parseCSV(csvText).map(normalizeResult);
-                    
+
                     if (results.length === 0) {
-                        showError('No benchmark results found. Please run the benchmark first.');
+                        showEmptyState();
                         return;
                     }
-                    
+
                     displayResults(results);
                     displayChart(results);
                     displayStats(results);
                     clearError();
                 } catch (csvError) {
-                    showError('No results available. Please run the benchmark first.');
+                    showEmptyState();
                 }
             }
         }
@@ -1149,7 +1149,21 @@
                 </div>
             `;
         }
-        
+
+        // First-run / empty state: having no benchmark results yet is expected, not an
+        // error. Show a neutral, welcoming message instead of a red error banner.
+        function showEmptyState() {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `
+                <div class="info-message">
+                    <strong>👋 Welcome to Local-Bench!</strong>
+                    No benchmarks have run yet. Select one or more installed models above,
+                    pick a test prompt, and click <strong>Run Benchmark</strong> to get started.
+                    Results, charts, and system specs will appear here automatically.
+                </div>
+            `;
+        }
+
         function clearError() {
             document.getElementById('errorContainer').innerHTML = '';
         }

@@ -132,6 +132,60 @@ You can also directly open `index.html` in your browser if the CSV file is in th
 PORT=8080 npm start
 ```
 
+## Docker / Companion Intelligence Hub
+
+Local-Bench is published as a public, multi-architecture (amd64 + arm64) container image
+and runs as a first-party app on the Companion Intelligence Hub.
+
+**Image:** `ghcr.io/companionintelligence/ci-local-bench:latest`
+
+The container runs the Node web server (`node dist/server.js`) and listens on
+**port 3000** inside the container.
+
+### Run the container
+
+```bash
+docker run -d -p 3000:3000 ghcr.io/companionintelligence/ci-local-bench:latest
+# open http://localhost:3000
+```
+
+Override the host port with `-p <host>:3000`, or change the in-container port with
+`-e PORT=8080`.
+
+### Pointing it at Ollama
+
+Benchmarks call an Ollama server. The address is read from the **`OLLAMA_API_URL`**
+environment variable (default `http://localhost:11434`). Inside a container,
+`localhost` refers to the container itself, so point it at the host or another
+container running Ollama:
+
+```bash
+# Ollama running on the Docker host (Docker Desktop / macOS / Windows)
+docker run -d -p 3000:3000 \
+  -e OLLAMA_API_URL=http://host.docker.internal:11434 \
+  ghcr.io/companionintelligence/ci-local-bench:latest
+
+# Ollama reachable on the LAN
+docker run -d -p 3000:3000 \
+  -e OLLAMA_API_URL=http://192.168.1.50:11434 \
+  ghcr.io/companionintelligence/ci-local-bench:latest
+```
+
+### First run / no Ollama
+
+The UI degrades gracefully with no benchmark data and no reachable Ollama:
+
+- The dashboard loads and shows a friendly empty-state message prompting you to
+  run your first benchmark (no red error banner).
+- The model picker falls back to the curated support catalog and notes that Ollama
+  is unavailable; `GET /api/models` returns HTTP `503` with the catalog body.
+- System specs, statistics, and the chart show neutral "run a benchmark" placeholders
+  until results exist.
+
+Benchmark results (`benchmark_data.db` SQLite + `benchmark_results.csv`) are written
+to the working directory (`/app` in the container). Mount a volume there if you want
+results to persist across container restarts.
+
 ## Output
 
 Results are saved to `benchmark_results.csv` in the following format:
