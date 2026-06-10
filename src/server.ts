@@ -10,6 +10,11 @@ import axios from 'axios';
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
 
+// Root directory for static file serving. Requests are resolved relative to this
+// and must stay inside it, so path-traversal attempts (e.g. /../../etc/passwd)
+// cannot escape the app directory.
+const STATIC_ROOT = process.cwd();
+
 interface MimeTypes {
   [key: string]: string;
 }
@@ -211,14 +216,28 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     return;
   }
   
-  let filePath = '.' + req.url;
-  if (filePath === './') {
-    filePath = './index.html';
+  // Resolve the request to a path inside STATIC_ROOT and reject anything that
+  // would escape it (path traversal). Decode first so encoded "../" is caught too.
+  let requestPath: string;
+  try {
+    requestPath = decodeURIComponent((req.url || '/').split('?')[0]);
+  } catch {
+    requestPath = '/';
   }
-  
+  if (requestPath === '/') {
+    requestPath = '/index.html';
+  }
+
+  const filePath = path.join(STATIC_ROOT, path.normalize(requestPath));
+  if (filePath !== STATIC_ROOT && !filePath.startsWith(STATIC_ROOT + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/html' });
+    res.end('<h1>403 - Forbidden</h1>', 'utf-8');
+    return;
+  }
+
   const extname = String(path.extname(filePath)).toLowerCase();
   const contentType = mimeTypes[extname] || 'application/octet-stream';
-  
+
   fs.readFile(filePath, (error: NodeJS.ErrnoException | null, content: Buffer) => {
     if (error) {
       if (error.code === 'ENOENT') {
