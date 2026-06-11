@@ -25,6 +25,12 @@ export interface SupportedOllamaModel {
   contextWindow?: string;
   inputs: string[];
   family: string;
+  /**
+   * Artificial Analysis Intelligence Index (higher = more capable). `null` means
+   * the model is not individually rated by the index (vision-only or very small
+   * models). See INTELLIGENCE_INDEX_* constants below for sourcing details.
+   */
+  intelligenceIndex: number | null;
 }
 
 export interface OllamaModelCatalogEntry extends SupportedOllamaModel {
@@ -32,6 +38,23 @@ export interface OllamaModelCatalogEntry extends SupportedOllamaModel {
   supported: boolean;
   source: 'catalog' | 'installed';
 }
+
+/**
+ * Provenance for the per-model intelligence scores.
+ *
+ * Scores come from the Artificial Analysis Intelligence Index — a composite
+ * "intelligence" benchmark (MMLU-Pro, GPQA Diamond, LiveCodeBench, AIME, etc.)
+ * scored roughly 0–100 where higher is more capable. Values are a snapshot and
+ * are version-sensitive; vision-only (`-vl`) and very small models are not
+ * individually rated by the index and are left `null` ("Not rated").
+ *
+ * To mirror CI-Hub's curated tutorial numbers exactly, override the
+ * `intelligenceIndex` values in SUPPORTED_OLLAMA_MODELS below — this is the
+ * single source of truth consumed by both the CLI and the web UI.
+ */
+export const INTELLIGENCE_INDEX_SOURCE = 'Artificial Analysis Intelligence Index';
+export const INTELLIGENCE_INDEX_URL = 'https://artificialanalysis.ai/';
+export const INTELLIGENCE_INDEX_AS_OF = '2026-06';
 
 // Predefined test prompts for benchmarking
 export const TEST_PROMPTS: BenchmarkPrompt[] = [
@@ -156,48 +179,48 @@ const DEFAULT_PROMPT = TEST_PROMPTS[0].prompt;
 // This list matches the models listed in the README.md "Default LLM Tests" section
 // Users can override this by passing model names as command-line arguments
 export const SUPPORTED_OLLAMA_MODELS: SupportedOllamaModel[] = [
-  { name: 'gemma3:270m', size: '292MB', contextWindow: '32K', inputs: ['Text'], family: 'gemma3' },
-  { name: 'qwen3:0.6b', size: '523MB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'gemma3:1b', size: '815MB', contextWindow: '32K', inputs: ['Text'], family: 'gemma3' },
-  { name: 'deepseek-r1:1.5b', size: '1.1GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'llama3.2:1b', size: '1.3GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.2' },
-  { name: 'qwen3:1.7b', size: '1.4GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'qwen3-vl:2b', size: '1.9GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl' },
-  { name: 'llama3.2:3b', size: '2.0GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.2' },
-  { name: 'qwen3:4b', size: '2.5GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'gemma3:4b', size: '3.3GB', contextWindow: '128K', inputs: ['Text', 'Image'], family: 'gemma3' },
-  { name: 'qwen3-vl:4b', size: '3.3GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl' },
-  { name: 'deepseek-r1:7b', size: '4.7GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'llama3.1:8b', size: '4.9GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1' },
-  { name: 'deepseek-r1:8b', size: '5.2GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'qwen3:8b', size: '5.2GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'qwen3-vl:8b', size: '6.1GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl' },
-  { name: 'gemma3:12b', size: '8.1GB', contextWindow: '128K', inputs: ['Text', 'Image'], family: 'gemma3' },
-  { name: 'deepseek-r1:14b', size: '9.0GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'qwen3:14b', size: '9.3GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'gpt-oss:20b', size: '14GB', contextWindow: '128K', inputs: ['Text'], family: 'gpt-oss' },
-  { name: 'gemma3:27b', size: '17GB', contextWindow: '128K', inputs: ['Text', 'Image'], family: 'gemma3' },
-  { name: 'qwen3-coder:latest', size: '19GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder' },
-  { name: 'qwen3-coder:30b', size: '19GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder' },
-  { name: 'qwen3:30b', size: '19GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'deepseek-r1:32b', size: '20GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'qwen3:32b', size: '20GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'qwen3-vl:30b', size: '20GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl' },
-  { name: 'qwen3-vl:32b', size: '21GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl' },
-  { name: 'deepseek-r1:70b', size: '43GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'llama3.1:70b', size: '43GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1' },
-  { name: 'gpt-oss:120b', size: '65GB', contextWindow: '128K', inputs: ['Text'], family: 'gpt-oss' },
-  { name: 'llama4:16x17b', size: '67GB', contextWindow: '10M', inputs: ['Text', 'Image'], family: 'llama4' },
-  { name: 'GLM-4.6:TQ1_0', size: '84GB', contextWindow: '198K', inputs: ['Text'], family: 'GLM-4.6' },
-  { name: 'qwen3:235b', size: '142GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3' },
-  { name: 'qwen3-vl:235b', size: '143GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl' },
-  { name: 'GLM-4.6:Q4_K_M', size: '216GB', contextWindow: '198K', inputs: ['Text'], family: 'GLM-4.6' },
-  { name: 'llama3.1:405b', size: '243GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1' },
-  { name: 'llama4:128x17b', size: '245GB', contextWindow: '1M', inputs: ['Text', 'Image'], family: 'llama4' },
-  { name: 'qwen3-coder:480b', size: '290GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder' },
-  { name: 'deepseek-v3.1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-v3.1' },
-  { name: 'deepseek-r1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-r1' },
-  { name: 'minmax m2', size: '968GB', contextWindow: '200K', inputs: ['Text'], family: 'minmax' }
+  { name: 'gemma3:270m', size: '292MB', contextWindow: '32K', inputs: ['Text'], family: 'gemma3', intelligenceIndex: null },
+  { name: 'qwen3:0.6b', size: '523MB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: null },
+  { name: 'gemma3:1b', size: '815MB', contextWindow: '32K', inputs: ['Text'], family: 'gemma3', intelligenceIndex: null },
+  { name: 'deepseek-r1:1.5b', size: '1.1GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: null },
+  { name: 'llama3.2:1b', size: '1.3GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.2', intelligenceIndex: null },
+  { name: 'qwen3:1.7b', size: '1.4GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 3 },
+  { name: 'qwen3-vl:2b', size: '1.9GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
+  { name: 'llama3.2:3b', size: '2.0GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.2', intelligenceIndex: 4 },
+  { name: 'qwen3:4b', size: '2.5GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 6 },
+  { name: 'gemma3:4b', size: '3.3GB', contextWindow: '128K', inputs: ['Text', 'Image'], family: 'gemma3', intelligenceIndex: 4 },
+  { name: 'qwen3-vl:4b', size: '3.3GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
+  { name: 'deepseek-r1:7b', size: '4.7GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 8 },
+  { name: 'llama3.1:8b', size: '4.9GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1', intelligenceIndex: 8 },
+  { name: 'deepseek-r1:8b', size: '5.2GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 9 },
+  { name: 'qwen3:8b', size: '5.2GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 9 },
+  { name: 'qwen3-vl:8b', size: '6.1GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
+  { name: 'gemma3:12b', size: '8.1GB', contextWindow: '128K', inputs: ['Text', 'Image'], family: 'gemma3', intelligenceIndex: 7 },
+  { name: 'deepseek-r1:14b', size: '9.0GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 13 },
+  { name: 'qwen3:14b', size: '9.3GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 11 },
+  { name: 'gpt-oss:20b', size: '14GB', contextWindow: '128K', inputs: ['Text'], family: 'gpt-oss', intelligenceIndex: 24 },
+  { name: 'gemma3:27b', size: '17GB', contextWindow: '128K', inputs: ['Text', 'Image'], family: 'gemma3', intelligenceIndex: 10 },
+  { name: 'qwen3-coder:latest', size: '19GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder', intelligenceIndex: 20 },
+  { name: 'qwen3-coder:30b', size: '19GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder', intelligenceIndex: 20 },
+  { name: 'qwen3:30b', size: '19GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 15 },
+  { name: 'deepseek-r1:32b', size: '20GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 18 },
+  { name: 'qwen3:32b', size: '20GB', contextWindow: '40K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 15 },
+  { name: 'qwen3-vl:30b', size: '20GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
+  { name: 'qwen3-vl:32b', size: '21GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
+  { name: 'deepseek-r1:70b', size: '43GB', contextWindow: '128K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 20 },
+  { name: 'llama3.1:70b', size: '43GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1', intelligenceIndex: 16 },
+  { name: 'gpt-oss:120b', size: '65GB', contextWindow: '128K', inputs: ['Text'], family: 'gpt-oss', intelligenceIndex: 33 },
+  { name: 'llama4:16x17b', size: '67GB', contextWindow: '10M', inputs: ['Text', 'Image'], family: 'llama4', intelligenceIndex: 13 },
+  { name: 'GLM-4.6:TQ1_0', size: '84GB', contextWindow: '198K', inputs: ['Text'], family: 'GLM-4.6', intelligenceIndex: 30 },
+  { name: 'qwen3:235b', size: '142GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 45 },
+  { name: 'qwen3-vl:235b', size: '143GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
+  { name: 'GLM-4.6:Q4_K_M', size: '216GB', contextWindow: '198K', inputs: ['Text'], family: 'GLM-4.6', intelligenceIndex: 30 },
+  { name: 'llama3.1:405b', size: '243GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1', intelligenceIndex: 17 },
+  { name: 'llama4:128x17b', size: '245GB', contextWindow: '1M', inputs: ['Text', 'Image'], family: 'llama4', intelligenceIndex: 18 },
+  { name: 'qwen3-coder:480b', size: '290GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder', intelligenceIndex: 24 },
+  { name: 'deepseek-v3.1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-v3.1', intelligenceIndex: 28 },
+  { name: 'deepseek-r1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 27 },
+  { name: 'minmax m2', size: '968GB', contextWindow: '200K', inputs: ['Text'], family: 'minmax', intelligenceIndex: 44 }
 ];
 
 export const DEFAULT_MODELS: string[] = SUPPORTED_OLLAMA_MODELS.map(model => model.name);
@@ -244,6 +267,7 @@ export function getOllamaModelCatalog(installedModels: OllamaModel[] = []): Olla
       contextWindow: undefined,
       inputs: ['Text'],
       family: inferModelFamily(model.name),
+      intelligenceIndex: null,
       installed: true,
       supported: false,
       source: 'installed' as const

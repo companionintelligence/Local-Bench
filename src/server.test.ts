@@ -576,7 +576,60 @@ describe('Server Module', () => {
       });
     });
 
+    describe('GET /api/meta', () => {
+      it('should return intelligence-score attribution metadata', (done) => {
+        const req = {
+          method: 'GET',
+          url: '/api/meta'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            expect(res.writeHead).toHaveBeenCalledWith(200, {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            });
+            const meta = JSON.parse(data);
+            expect(meta).toHaveProperty('intelligence');
+            expect(meta.intelligence).toHaveProperty('source');
+            expect(meta.intelligence).toHaveProperty('url');
+            expect(meta.intelligence).toHaveProperty('asOf');
+            expect(meta.intelligence.source).toMatch(/Artificial Analysis/i);
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+    });
+
     describe('GET /api/models', () => {
+      it('should include the intelligence index on catalog entries', (done) => {
+        mockedAxios.get.mockResolvedValue({ data: { models: [] } });
+
+        const req = {
+          method: 'GET',
+          url: '/api/models'
+        } as http.IncomingMessage;
+
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            const models = JSON.parse(data);
+            expect(models.length).toBeGreaterThan(0);
+            models.forEach((model: any) => {
+              expect(model).toHaveProperty('intelligenceIndex');
+            });
+            const gptOss = models.find((m: any) => m.name === 'gpt-oss:120b');
+            expect(typeof gptOss.intelligenceIndex).toBe('number');
+            done();
+          })
+        } as unknown as http.ServerResponse;
+
+        server.emit('request', req, res);
+      });
+
       it('should merge installed models with the supported catalog', (done) => {
         mockedAxios.get.mockResolvedValue({
           data: {

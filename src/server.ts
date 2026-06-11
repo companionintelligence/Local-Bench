@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase } from './database';
-import { benchmarkModel, getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS } from './benchmark';
+import { benchmarkModel, getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS, INTELLIGENCE_INDEX_SOURCE, INTELLIGENCE_INDEX_URL, INTELLIGENCE_INDEX_AS_OF } from './benchmark';
 import axios from 'axios';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -97,6 +97,22 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
     }
   }
   
+  // API endpoint: App metadata (intelligence-score attribution, etc.)
+  if (url === '/api/meta') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({
+      intelligence: {
+        source: INTELLIGENCE_INDEX_SOURCE,
+        url: INTELLIGENCE_INDEX_URL,
+        asOf: INTELLIGENCE_INDEX_AS_OF
+      }
+    }));
+    return true;
+  }
+
   // API endpoint: Get available test prompts
   if (url === '/api/prompts') {
     res.writeHead(200, { 
