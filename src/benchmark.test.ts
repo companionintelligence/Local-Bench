@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { benchmarkModel, checkModelAvailable, getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, SUPPORTED_OLLAMA_MODELS, TEST_PROMPTS } from './benchmark';
+import { benchmarkModel, checkModelAvailable, getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, SUPPORTED_OLLAMA_MODELS, TEST_PROMPTS, INTELLIGENCE_INDEX_SOURCE, INTELLIGENCE_INDEX_URL, INTELLIGENCE_INDEX_AS_OF } from './benchmark';
 import * as database from './database';
 import * as systemSpecs from './systemSpecs';
 
@@ -256,6 +256,36 @@ describe('Benchmark Module', () => {
     });
   });
 
+  describe('intelligence index', () => {
+    it('should expose intelligence-index source attribution', () => {
+      expect(INTELLIGENCE_INDEX_SOURCE).toMatch(/Artificial Analysis/i);
+      expect(INTELLIGENCE_INDEX_URL).toMatch(/^https?:\/\//);
+      expect(typeof INTELLIGENCE_INDEX_AS_OF).toBe('string');
+      expect(INTELLIGENCE_INDEX_AS_OF.length).toBeGreaterThan(0);
+    });
+
+    it('should define an intelligenceIndex (number or null) for every curated model', () => {
+      SUPPORTED_OLLAMA_MODELS.forEach(model => {
+        expect(model).toHaveProperty('intelligenceIndex');
+        const score = model.intelligenceIndex;
+        const isNumberOrNull = score === null || typeof score === 'number';
+        expect(isNumberOrNull).toBe(true);
+        if (typeof score === 'number') {
+          expect(score).toBeGreaterThanOrEqual(0);
+          expect(score).toBeLessThanOrEqual(100);
+        }
+      });
+    });
+
+    it('should rate at least the flagship text models and leave vision-only models unrated', () => {
+      const byName = new Map(SUPPORTED_OLLAMA_MODELS.map(m => [m.name, m]));
+      expect(byName.get('gpt-oss:120b')?.intelligenceIndex).toBeGreaterThan(0);
+      expect(byName.get('qwen3:235b')?.intelligenceIndex).toBeGreaterThan(0);
+      // Vision-only variants are not individually rated by the intelligence index.
+      expect(byName.get('qwen3-vl:235b')?.intelligenceIndex).toBeNull();
+    });
+  });
+
   describe('getOllamaModelCatalog', () => {
     it('should include the curated supported Ollama catalog', () => {
       const catalog = getOllamaModelCatalog();
@@ -264,6 +294,15 @@ describe('Benchmark Module', () => {
       expect(catalog[0]).toHaveProperty('installed');
       expect(catalog[0]).toHaveProperty('supported');
       expect(catalog[0]).toHaveProperty('inputs');
+      expect(catalog[0]).toHaveProperty('intelligenceIndex');
+    });
+
+    it('should set intelligenceIndex to null for installed-only (non-catalog) models', () => {
+      const catalog = getOllamaModelCatalog([
+        { name: 'custom-model:latest', size: 512 * 1024 * 1024 }
+      ] as any);
+      const installedOnlyModel = catalog.find(model => model.name === 'custom-model:latest');
+      expect(installedOnlyModel?.intelligenceIndex).toBeNull();
     });
 
     it('should mark installed catalog models and include installed-only models', () => {

@@ -1,272 +1,248 @@
-# Local-Bench 🚀
+# Local-Bench
 
-A tool for benchmarking local LLM (Large Language Model) performance via the Ollama API and AMD STRIX Halo GPUs. This tool measures the token generation speed of different models and presents the results in an interactive web interface with tables and charts.
-<img width="1280" height="1432" alt="image" src="https://github.com/user-attachments/assets/ce2bfe4f-4fd5-437f-8283-0ac2507f6cf1" />
+**A [Companion Intelligence](https://ci.computer/) app for benchmarking local LLMs — and comparing them by intelligence.**
 
+Local-Bench measures the token-generation speed of models you run locally (via [Ollama](https://ollama.ai/) or AMD STRIX Halo / llama.cpp) and presents the results in a clean, local-first web dashboard. It also ships a curated Companion model catalog ranked by the **Artificial Analysis Intelligence Index**, so you can weigh capability against the throughput your hardware actually delivers.
+
+![Local-Bench dashboard](docs/screenshots/00-hero.png)
+
+## Screenshots
+
+| Model intelligence catalog | Throughput comparison |
+| --- | --- |
+| ![Model intelligence](docs/screenshots/02-model-intelligence.png) | ![Throughput](docs/screenshots/04-throughput.png) |
+
+| Run a benchmark | Detailed results |
+| --- | --- |
+| ![Run a benchmark](docs/screenshots/03-run-benchmark.png) | ![Detailed results](docs/screenshots/05-results.png) |
+
+> Full-page view: [`docs/screenshots/01-overview.png`](docs/screenshots/01-overview.png)
 
 ## Features
 
-- 📊 Benchmark multiple LLM models with a single command
-- ⚡ Measure tokens per second for each model
-- 🧪 Run a broader benchmark library with coding, reasoning, extraction, planning, summarization, translation, and instruction-following prompts
-- 💾 Store results in CSV format and SQLite database
-- 🌐 Beautiful web interface with:
-  - Installed vs. supported Ollama model catalog
-  - Benchmark prompt library with benchmark types
-  - Interactive bar charts
-  - Detailed results table
-  - Performance statistics
-  - Real-time refresh capability
-- 🎮 **NEW: AMD STRIX Halo GPU support** for llama.cpp benchmarking
+- 📊 Benchmark multiple local LLMs and measure **tokens per second** for each
+- 🧠 **Model intelligence catalog** — curated Companion models ranked by the Artificial Analysis Intelligence Index, shown alongside size, context window, and modality
+- 🧪 A broad prompt library (coding, reasoning, extraction, planning, summarization, translation, instruction-following) plus custom prompts
+- 💾 Results stored in SQLite (`benchmark_data.db`) and CSV (`benchmark_results.csv`)
+- 💻 Captures system specifications (CPU, memory, OS, GPU, STRIX Halo) with every run
+- 🎮 **AMD STRIX Halo** GPU support for `llama.cpp` benchmarking
+- 🪶 **Local-first** — Chart.js is vendored into the repo, so the dashboard renders fully offline (it gracefully falls back to CSS bar charts if scripting is unavailable)
+- 🎨 Redesigned to match Companion Intelligence branding (light, monochrome, minimalist)
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (v14 or higher)
-- **For Ollama benchmarks:**
-  - [Ollama](https://ollama.ai/) installed and running locally
-  - At least one LLM model downloaded in Ollama
-- **For AMD STRIX Halo benchmarks:**
-  - AMD Ryzen AI Max "Strix Halo" APU
-  - Fedora 42/43 or Ubuntu 24.04
-  - Toolbox (podman-toolbox) installed
-  - See [STRIX_HALO.md](STRIX_HALO.md) for detailed requirements
+- [Node.js](https://nodejs.org/) (v18 or higher)
+- **For Ollama benchmarks:** [Ollama](https://ollama.ai/) running locally with at least one model pulled
+- **For AMD STRIX Halo benchmarks:** an AMD Ryzen AI Max "Strix Halo" APU — see [STRIX_HALO.md](STRIX_HALO.md)
 
-## Installation
+## Quick start
 
-1. Clone this repository:
 ```bash
 git clone https://github.com/companionintelligence/Local-Bench.git
 cd Local-Bench
-```
-
-2. Install dependencies:
-```bash
 npm install
-```
 
-3. Make sure Ollama is running:
-```bash
-# Ollama should be running on http://localhost:11434
-# Start it if it's not already running
+# make sure Ollama is running (default http://localhost:11434)
 ollama serve
+
+# build + start the dashboard
+npm start
+# open http://localhost:3000
 ```
 
-4. Download some models (if you haven't already):
-```bash
-ollama pull llama2
-ollama pull mistral
-ollama pull codellama
-```
+Don't have Ollama running yet? The dashboard still loads — it shows the curated catalog and intelligence scores, and degrades gracefully (see [First run / no Ollama](#first-run--no-ollama)).
 
 ## Usage
 
-### Ollama Benchmarks
+### Run benchmarks from the CLI
 
-#### Running Benchmarks
-
-**Default models:**
 ```bash
+# Benchmark the curated catalog
 npm run benchmark
-```
 
-This benchmarks the curated Ollama support catalog defined in `src/benchmark.ts`. You can also run a smaller selection by passing model names on the command line.
-
-**Custom models:**
-```bash
+# Benchmark specific installed models
 node dist/benchmark.js llama3.2:3b qwen3:8b gemma3:4b
+
+# Point at a non-default Ollama
+OLLAMA_API_URL=http://192.168.1.50:11434 npm run benchmark
 ```
 
-You can specify any models you have installed in Ollama.
+### Run benchmarks from the web UI
 
-**Custom Ollama API URL:**
 ```bash
-OLLAMA_API_URL=http://localhost:11434 npm run benchmark
+npm start          # http://localhost:3000
+PORT=8080 npm start  # custom port
 ```
 
-### AMD STRIX Halo Benchmarks
+The dashboard lets you pick installed models, choose a prompt (or write your own), run benchmarks, and watch results, charts, statistics, and system specs update live.
 
-For AMD Ryzen AI Max "Strix Halo" GPU benchmarking with llama.cpp:
+### AMD STRIX Halo
 
-**Detect STRIX Halo GPU:**
 ```bash
 npm run strix-halo detect
-```
-
-**Setup toolbox (one-time):**
-```bash
 npm run strix-halo setup llama-rocm-7.2
-```
-
-**Run benchmark:**
-```bash
 npm run strix-halo benchmark /path/to/model.gguf --toolbox llama-rocm-7.2
 ```
 
-**See full documentation:**
-[STRIX_HALO.md](STRIX_HALO.md) - Complete guide for AMD STRIX Halo integration
+Full guide: [STRIX_HALO.md](STRIX_HALO.md).
 
-### Viewing Results
+## Model intelligence scores
 
-1. Start the web server:
-```bash
-npm start
-```
+Each curated model carries an **intelligence score** sourced from the
+[Artificial Analysis Intelligence Index](https://artificialanalysis.ai/) — a
+composite benchmark (MMLU-Pro, GPQA Diamond, LiveCodeBench, AIME, and more)
+scored roughly 0–100 where higher is more capable. The dashboard surfaces it as
+an `IQ` badge on each model and as a ranked "Model intelligence" list.
 
-2. Open your browser and navigate to:
-```
-http://localhost:3000
-```
+A few notes on the data:
 
-3. The web interface will display:
-   - Installed and supported Ollama model catalog entries
-   - A richer benchmark prompt library with prompt categories and benchmark types
-   - Summary statistics (total models, average speed, fastest model)
-   - Interactive bar chart comparing model performance
-   - Detailed results table with all benchmark data
-
-You can also directly open `index.html` in your browser if the CSV file is in the same directory.
-
-### Custom Port
-
-```bash
-PORT=8080 npm start
-```
+- Scores are a **snapshot** (currently `2026-06`) and are version-sensitive — the index evolves as new evaluations and models are added.
+- **Vision-only** (`-vl`) variants and very small models are not individually rated by the index and appear as **"Not rated" / `IQ —`**.
+- The values are a best-effort public reference and are intended to be **easy to override** with Companion's own curated numbers. They live in a single place — the `intelligenceIndex` field of `SUPPORTED_OLLAMA_MODELS` in [`src/benchmark.ts`](src/benchmark.ts) — which both the CLI and UI read from. The attribution shown in the UI comes from `INTELLIGENCE_INDEX_SOURCE` / `INTELLIGENCE_INDEX_URL` / `INTELLIGENCE_INDEX_AS_OF` in the same file.
 
 ## Docker / Companion Intelligence Hub
 
-Local-Bench is published as a public, multi-architecture (amd64 + arm64) container image
-and runs as a first-party app on the Companion Intelligence Hub.
+Local-Bench is published as a public, multi-architecture (amd64 + arm64) container image and runs as a first-party app on the Companion Intelligence Hub.
 
 **Image:** `ghcr.io/companionintelligence/ci-local-bench:latest`
-
-The container runs the Node web server (`node dist/server.js`) and listens on
-**port 3000** inside the container.
-
-### Run the container
 
 ```bash
 docker run -d -p 3000:3000 ghcr.io/companionintelligence/ci-local-bench:latest
 # open http://localhost:3000
 ```
 
-Override the host port with `-p <host>:3000`, or change the in-container port with
-`-e PORT=8080`.
-
-### Pointing it at Ollama
-
-Benchmarks call an Ollama server. The address is read from the **`OLLAMA_API_URL`**
-environment variable (default `http://localhost:11434`). Inside a container,
-`localhost` refers to the container itself, so point it at the host or another
-container running Ollama:
+Point it at an Ollama server with `OLLAMA_API_URL` (inside a container, `localhost` is the container itself):
 
 ```bash
-# Ollama running on the Docker host (Docker Desktop / macOS / Windows)
+# Ollama on the Docker host
 docker run -d -p 3000:3000 \
   -e OLLAMA_API_URL=http://host.docker.internal:11434 \
   ghcr.io/companionintelligence/ci-local-bench:latest
 
-# Ollama reachable on the LAN
+# Ollama on the LAN
 docker run -d -p 3000:3000 \
   -e OLLAMA_API_URL=http://192.168.1.50:11434 \
   ghcr.io/companionintelligence/ci-local-bench:latest
 ```
 
+Benchmark data (`benchmark_data.db` + `benchmark_results.csv`) is written to the working directory (`/app` in the container). Mount a volume there to persist results across restarts.
+
 ### First run / no Ollama
 
-The UI degrades gracefully with no benchmark data and no reachable Ollama:
+The dashboard degrades gracefully when there's no data and no reachable Ollama:
 
-- The dashboard loads and shows a friendly empty-state message prompting you to
-  run your first benchmark (no red error banner).
-- The model picker falls back to the curated support catalog and notes that Ollama
-  is unavailable; `GET /api/models` returns HTTP `503` with the catalog body.
-- System specs, statistics, and the chart show neutral "run a benchmark" placeholders
-  until results exist.
+- It loads and shows a friendly welcome instead of a red error banner.
+- The **Model intelligence** catalog still renders (scores come from the bundled catalog, not Ollama).
+- The model picker falls back to the curated catalog and notes that Ollama is unavailable; `GET /api/models` returns HTTP `503` with the catalog body.
+- System specs, statistics, and the chart show neutral "run a benchmark" placeholders until results exist.
 
-Benchmark results (`benchmark_data.db` SQLite + `benchmark_results.csv`) are written
-to the working directory (`/app` in the container). Mount a volume there if you want
-results to persist across container restarts.
+## API endpoints
 
-## Output
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/models` | Curated catalog merged with installed Ollama models (incl. `intelligenceIndex`). `503` + catalog body if Ollama is unreachable. |
+| `GET /api/prompts` | The benchmark prompt library |
+| `GET /api/results` | All stored benchmark results |
+| `GET /api/system-specs` | Latest captured system specifications |
+| `GET /api/results-with-specs?limit=N` | Results joined with their system specs |
+| `GET /api/meta` | Intelligence-score attribution (source, URL, snapshot date) |
+| `POST /api/run-benchmark` | Run a benchmark `{ models: string[], promptId?, customPrompt? }` |
 
-Results are saved to `benchmark_results.csv` in the following format:
+## Output (CSV)
 
 ```csv
 Model,Tokens Per Second,Total Tokens,Duration (s),Timestamp,Status
-llama2,45.23,120,2.65,2024-01-15T10:30:00.000Z,Success
-mistral,52.18,125,2.40,2024-01-15T10:32:30.000Z,Success
+gemma3:4b,78.42,412,5.25,2026-06-11T20:36:02.000Z,Success
+qwen3:8b,52.31,498,9.52,2026-06-11T20:38:02.000Z,Success
 ```
 
 ## Configuration
 
-You can customize the following by editing `src/benchmark.ts`:
+Edit [`src/benchmark.ts`](src/benchmark.ts) to customize:
 
-- `OLLAMA_API_URL`: Ollama API endpoint (default: `http://localhost:11434`)
-- `TEST_PROMPTS`: The benchmark prompt library used by the CLI and UI
-- `SUPPORTED_OLLAMA_MODELS`: The curated Ollama support catalog and default benchmark targets
+- `OLLAMA_API_URL` — Ollama endpoint (env var, default `http://localhost:11434`)
+- `TEST_PROMPTS` — the benchmark prompt library
+- `SUPPORTED_OLLAMA_MODELS` — the curated catalog, including each model's `intelligenceIndex`
+
+## Testing
+
+```bash
+npm test            # Jest unit tests (server, benchmark, database, system specs, STRIX Halo)
+npm run test:coverage
+npm run build       # typecheck + emit to dist/
+```
+
+The repository is set up for automated testing:
+
+- **Unit tests** cover the API, the catalog/intelligence data, CSV/DB writes, and system-spec collection.
+- **Container smoke test** — [`tests/container/`](tests/container) is a self-contained Playwright harness that boots the published image and asserts the web UI renders, saving a screenshot artifact. It runs in the GHCR publish workflow.
+- **Screenshots** in [`docs/screenshots/`](docs/screenshots) are captured against the running server (see that workflow / the Playwright harness) and embedded above.
 
 ## Troubleshooting
 
-**Cannot connect to Ollama API:**
-- Make sure Ollama is running: `ollama serve`
-- Check that the API is accessible at `http://localhost:11434`
-- Try setting a custom URL: `OLLAMA_API_URL=http://your-url npm run benchmark`
+**Cannot connect to Ollama:** ensure `ollama serve` is running and reachable at `http://localhost:11434`, or set `OLLAMA_API_URL`.
 
-**Model not found:**
-- List available models: `ollama list`
-- Pull the model: `ollama pull <model-name>`
+**Model not found:** list installed models with `ollama list`, then `ollama pull <model-name>`.
 
-**Benchmark takes too long:**
-- Some models are slower than others
-- The tool has a 2-minute timeout per model
-- Consider benchmarking fewer models at once
+**Benchmark takes too long:** larger models are slower; there's a 2-minute per-model timeout. Benchmark fewer/smaller models at once.
+
+**Chart not showing:** the dashboard automatically falls back to CSS bar charts if the vendored Chart.js can't execute — no internet required.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome — please open a Pull Request.
 
-# Supported Ollama Catalog
+## Supported Companion catalog
 
-| Name | Size | Context | Input |
-| --- | --- | --- | --- |
-| gemma3:270m | 292MB | 32K | Text |
-| qwen3:0.6b | 523MB | 40K | Text |
-| gemma3:1b | 815MB | 32K | Text |
-| deepseek-r1:1.5b | 1.1GB | 128K | Text |
-| llama3.2:1b | 1.3GB | 128K | Text |
-| qwen3:1.7b | 1.4GB | 40K | Text |
-| qwen3-vl:2b | 1.9GB | 256K | Text, Image |
-| llama3.2:3b latest | 2.0GB | 128K | Text |
-| qwen3:4b | 2.5GB | 256K | Text |
-| gemma3:4b latest | 3.3GB | 128K | Text, Image |
-| qwen3-vl:4b | 3.3GB | 256K | Text, Image |
-| deepseek-r1:7b | 4.7GB | 128K | Text |
-| llama3.1:8b latest | 4.9GB | 128K | Text |
-| deepseek-r1:8b latest | 5.2GB | 128K | Text |
-| qwen3:8b latest | 5.2GB | 40K | Text |
-| qwen3-vl:8b latest | 6.1GB | 256K | Text, Image |
-| gemma3:12b | 8.1GB | 128K | Text, Image |
-| deepseek-r1:14b | 9.0GB | 128K | Text |
-| qwen3:14b | 9.3GB | 40K | Text |
-| gpt-oss:20b | 14GB | 128K | Text |
-| gemma3:27b | 17GB | 128K | Text, Image |
-| qwen3-coder:latest | 19GB | 256K | Text |
-| qwen3-coder:30b latest | 19GB | 256K | Text |
-| qwen3:30b | 19GB | 256K | Text |
-| deepseek-r1:32b | 20GB | 128K | Text |
-| qwen3:32b | 20GB | 40K | Text |
-| qwen3-vl:30b | 20GB | 256K | Text, Image |
-| qwen3-vl:32b | 21GB | 256K | |
-| deepseek-r1:70b | 43GB | 128K | Text |
-| llama3.1:70b | 43GB | 128K | Text |
-| gpt-oss:120b | 65GB | 128K | Text |
-| llama4:16x17b latest | 67GB | 10M | Text, Image |
-| GLM-4.6:TQ1_0 | 84GB | 198K | Text |
-| qwen3:235b | 142GB | 256K | Text |
-| qwen3-vl:235b | 143GB | 256K | |
-| GLM-4.6:Q4_K_M | 216GB | 198K | Text |
-| llama3.1:405b | 243GB | 128K | Text |
-| llama4:128x17b | 245GB | 1M | Text, Image |
-| qwen3-coder:480b | 290GB | 256K | Text |
-| deepseek-v3.1:671b latest | 404GB | 160K | Text |
-| deepseek-r1:671b | 404GB | 160K | Text |
-| minmax m2 | 968GB | 200K | Text |
+Curated models with their Artificial Analysis Intelligence Index score (snapshot `2026-06`; `—` = not individually rated).
+
+<!-- The table below is generated from SUPPORTED_OLLAMA_MODELS in src/benchmark.ts -->
+
+| Model | Size | Context | Inputs | Intelligence |
+| --- | --- | --- | --- | --- |
+| gemma3:270m | 292MB | 32K | Text | — |
+| qwen3:0.6b | 523MB | 40K | Text | — |
+| gemma3:1b | 815MB | 32K | Text | — |
+| deepseek-r1:1.5b | 1.1GB | 128K | Text | — |
+| llama3.2:1b | 1.3GB | 128K | Text | — |
+| qwen3:1.7b | 1.4GB | 40K | Text | 3 |
+| qwen3-vl:2b | 1.9GB | 256K | Text, Image | — |
+| llama3.2:3b | 2.0GB | 128K | Text | 4 |
+| qwen3:4b | 2.5GB | 256K | Text | 6 |
+| gemma3:4b | 3.3GB | 128K | Text, Image | 4 |
+| qwen3-vl:4b | 3.3GB | 256K | Text, Image | — |
+| deepseek-r1:7b | 4.7GB | 128K | Text | 8 |
+| llama3.1:8b | 4.9GB | 128K | Text | 8 |
+| deepseek-r1:8b | 5.2GB | 128K | Text | 9 |
+| qwen3:8b | 5.2GB | 40K | Text | 9 |
+| qwen3-vl:8b | 6.1GB | 256K | Text, Image | — |
+| gemma3:12b | 8.1GB | 128K | Text, Image | 7 |
+| deepseek-r1:14b | 9.0GB | 128K | Text | 13 |
+| qwen3:14b | 9.3GB | 40K | Text | 11 |
+| gpt-oss:20b | 14GB | 128K | Text | 24 |
+| gemma3:27b | 17GB | 128K | Text, Image | 10 |
+| qwen3-coder:latest | 19GB | 256K | Text | 20 |
+| qwen3-coder:30b | 19GB | 256K | Text | 20 |
+| qwen3:30b | 19GB | 256K | Text | 15 |
+| deepseek-r1:32b | 20GB | 128K | Text | 18 |
+| qwen3:32b | 20GB | 40K | Text | 15 |
+| qwen3-vl:30b | 20GB | 256K | Text, Image | — |
+| qwen3-vl:32b | 21GB | 256K | Text, Image | — |
+| deepseek-r1:70b | 43GB | 128K | Text | 20 |
+| llama3.1:70b | 43GB | 128K | Text | 16 |
+| gpt-oss:120b | 65GB | 128K | Text | 33 |
+| llama4:16x17b | 67GB | 10M | Text, Image | 13 |
+| GLM-4.6:TQ1_0 | 84GB | 198K | Text | 30 |
+| qwen3:235b | 142GB | 256K | Text | 45 |
+| qwen3-vl:235b | 143GB | 256K | Text, Image | — |
+| GLM-4.6:Q4_K_M | 216GB | 198K | Text | 30 |
+| llama3.1:405b | 243GB | 128K | Text | 17 |
+| llama4:128x17b | 245GB | 1M | Text, Image | 18 |
+| qwen3-coder:480b | 290GB | 256K | Text | 24 |
+| deepseek-v3.1:671b | 404GB | 160K | Text | 28 |
+| deepseek-r1:671b | 404GB | 160K | Text | 27 |
+| minmax m2 | 968GB | 200K | Text | 44 |
+
+---
+
+> **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
