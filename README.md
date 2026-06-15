@@ -29,7 +29,7 @@ Local-Bench measures the token-generation speed of models you run locally (via [
 - 💻 Captures system specifications (CPU, memory, OS, GPU, STRIX Halo) with every run
 - 🎮 **AMD STRIX Halo** GPU support for `llama.cpp` benchmarking
 - 🪶 **Local-first** — Chart.js is vendored into the repo, so the dashboard renders fully offline (it gracefully falls back to CSS bar charts if scripting is unavailable)
-- 🎨 Styled to match the **Companion Intelligence Hub design system** — light colorway, teal accents, Montserrat, and the official CI logo banner
+- 🎨 Styled to match the **Companion Intelligence Hub design system** — **light & dark** colorways (follows your system theme, with a toggle), teal accents, Montserrat, and the official CI logo banner
 
 ## Prerequisites
 

@@ -6,6 +6,19 @@
     <title>Local-Bench · Companion Intelligence</title>
     <meta name="description" content="Local-Bench — a Companion Intelligence app for benchmarking local LLMs and comparing model intelligence.">
     <link rel="icon" type="image/svg+xml" href="assets/ci-icon.svg">
+    <meta name="color-scheme" content="light dark">
+    <!-- Theme: apply the saved or system colour scheme before first paint (no flash). -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('lb-theme');
+          if (t !== 'light' && t !== 'dark') {
+            t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.dataset.theme = t;
+        } catch (e) { document.documentElement.dataset.theme = 'light'; }
+      })();
+    </script>
     <!-- Companion Intelligence brand font (matches Hub & Portal). Loaded with display=swap
          and a full system fallback, so the dashboard still renders offline (local-first). -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -45,6 +58,30 @@
             --shadow-sm: 0 1px 2px rgba(6,108,128,.10);
             --sans: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             --mono: ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Code', 'Roboto Mono', Menlo, Consolas, monospace;
+            color-scheme: light;
+        }
+
+        /* ---- Dark mode — Companion Hub dark colorway. Only the surface/text/accent
+               tokens flip; chip colours (white-on-muted) and contrast rules carry over. ---- */
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #041620;
+            --bg-deep: #07202b;
+            --surface: #0a222e;
+            --surface-2: #0e2c39;
+            --ink: #e8f1f2;
+            --ink-2: #b7cbcd;
+            --muted: #93a9ab;
+            --muted-2: #6e868a;
+            --border: rgba(120,205,210,.16);
+            --border-strong: rgba(120,205,210,.30);
+            --accent: #0f7b83;
+            --accent-2: #16a3ad;
+            --accent-strong: #0a5a61;
+            --brand: #5fd0d8;
+            --brand-strong: #8fe3e8;
+            --shadow: 0 2px 4px rgba(0,0,0,.45), 0 14px 34px rgba(0,0,0,.5);
+            --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -60,6 +97,14 @@
             -webkit-font-smoothing: antialiased;
             line-height: 1.5;
         }
+
+        [data-theme="dark"] body {
+            background:
+                radial-gradient(1200px 600px at 12% -8%, #07202b 0%, rgba(7,32,43,0) 55%),
+                radial-gradient(1000px 520px at 100% 0%, #0c2c39 0%, rgba(12,44,57,0) 50%),
+                var(--bg);
+        }
+        [data-theme="dark"] .topbar { background: rgba(8,28,38,.82); }
 
         a { color: var(--brand); text-decoration: none; }
         a:hover { text-decoration: underline; }
@@ -84,7 +129,22 @@
         .brand-app { font-size: 1.06rem; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
         @media (max-width: 640px) { .brand-logo { height: 26px; } }
         @media (max-width: 480px) { .brand-sep, .brand-app { display: none; } }
+        .brand-logo-dark { display: none; }
+        [data-theme="dark"] .brand-logo-light { display: none; }
+        [data-theme="dark"] .brand-logo-dark { display: block; }
         .topbar-meta { display: flex; align-items: center; gap: 10px; }
+        .theme-toggle {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px; flex: 0 0 auto; padding: 0;
+            background: var(--surface); border: 1px solid var(--border); color: var(--ink-2);
+            border-radius: 999px; cursor: pointer; box-shadow: var(--shadow-sm);
+            transition: background .12s ease, color .12s ease;
+        }
+        .theme-toggle:hover { background: var(--surface-2); color: var(--ink); }
+        .theme-toggle svg { width: 18px; height: 18px; display: block; }
+        .theme-toggle .icon-dark { display: none; }
+        [data-theme="dark"] .theme-toggle .icon-light { display: none; }
+        [data-theme="dark"] .theme-toggle .icon-dark { display: block; }
         .pill {
             display: inline-flex; align-items: center; gap: 7px;
             font-size: .78rem; font-weight: 600; color: var(--ink-2);
@@ -304,13 +364,18 @@
     <div class="topbar">
         <div class="wrap topbar-inner">
             <div class="brand">
-                <img class="brand-logo" src="assets/2024_CI__Logo_Banner_Color_small-lightmode.svg" alt="Companion Intelligence" width="109" height="30" />
+                <img class="brand-logo brand-logo-light" src="assets/2024_CI__Logo_Banner_Color_small-lightmode.svg" alt="Companion Intelligence" width="109" height="30" />
+                <img class="brand-logo brand-logo-dark" src="assets/2024_CI__Logo_Banner_Color_small-darkmode.svg" alt="Companion Intelligence" width="109" height="30" />
                 <span class="brand-sep" aria-hidden="true"></span>
                 <span class="brand-app">Local-Bench</span>
             </div>
             <div class="topbar-meta">
                 <span class="pill hide-sm" id="ollamaStatus"><span class="dot" id="ollamaDot"></span><span id="ollamaLabel">Connecting…</span></span>
                 <span class="pill"><span class="dot ok"></span>Local-first</span>
+                <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle light or dark theme" title="Toggle theme">
+                    <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                    <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+                </button>
             </div>
         </div>
     </div>
@@ -739,20 +804,27 @@
             if (ChartLibrary) {
                 canvas.style.display = 'block';
                 chartFallback.classList.remove('active');
+                const dark = document.documentElement.dataset.theme === 'dark';
+                const gridColor = dark ? 'rgba(255,255,255,.10)' : 'rgba(12,13,14,.06)';
+                const labelColor = dark ? '#b7cbcd' : '#344b56';
+                const topFill = dark ? 'rgba(22,163,173,0.95)' : 'rgba(15,111,120,0.92)';
+                const baseFill = dark ? 'rgba(150,170,178,0.5)' : 'rgba(52,75,86,0.82)';
+                const topLine = dark ? 'rgba(95,208,216,1)' : 'rgba(9,94,102,1)';
+                const baseLine = dark ? 'rgba(180,200,205,0.85)' : 'rgba(18,33,42,1)';
                 chart = new ChartLibrary(ctx, {
                     type: 'bar',
                     data: { labels, datasets: [{
                         label: 'Tokens per second', data,
-                        backgroundColor: successfulResults.map((_, i) => i === 0 ? 'rgba(15,111,120,0.92)' : 'rgba(52,75,86,0.82)'),
-                        borderColor: successfulResults.map((_, i) => i === 0 ? 'rgba(9,94,102,1)' : 'rgba(18,33,42,1)'),
+                        backgroundColor: successfulResults.map((_, i) => i === 0 ? topFill : baseFill),
+                        borderColor: successfulResults.map((_, i) => i === 0 ? topLine : baseLine),
                         borderWidth: 1, borderRadius: 6
                     }]},
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         plugins: { legend: { display: false }, title: { display: false } },
                         scales: {
-                            y: { beginAtZero: true, grid: { color: 'rgba(12,13,14,.06)' }, title: { display: true, text: 'Tokens / second', font: { weight: '600' } } },
-                            x: { grid: { display: false }, title: { display: true, text: 'Model', font: { weight: '600' } } }
+                            y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: labelColor }, title: { display: true, text: 'Tokens / second', color: labelColor, font: { weight: '600' } } },
+                            x: { grid: { display: false }, ticks: { color: labelColor }, title: { display: true, text: 'Model', color: labelColor, font: { weight: '600' } } }
                         }
                     }
                 });
@@ -884,6 +956,25 @@
                 setTimeout(() => { progressContainer.classList.remove('active'); progressFill.style.width = '0%'; }, 2600);
             }
         }
+
+        // Theme toggle — overrides the system preference and persists the choice.
+        function applyTheme(theme) {
+            document.documentElement.dataset.theme = theme;
+            try { localStorage.setItem('lb-theme', theme); } catch (e) {}
+            if (lastResults.length) displayChart(lastResults);
+        }
+        document.getElementById('themeToggle').addEventListener('click', () => {
+            applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+        });
+        // Follow the OS theme while the user hasn't made an explicit choice.
+        try {
+            matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                if (!localStorage.getItem('lb-theme')) {
+                    document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
+                    if (lastResults.length) displayChart(lastResults);
+                }
+            });
+        } catch (e) { /* matchMedia unavailable — stay on initial theme */ }
 
         // Bootstrap
         loadMeta().then(loadAvailableModels);
