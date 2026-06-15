@@ -40,6 +40,7 @@
             --ink-2: #344b56;           /* soft text */
             --muted: #617784;           /* muted text */
             --muted-2: #8395a0;
+            --muted-soft: #90a0a9;      /* card <p> — ~30% lighter than --muted */
             --border: rgba(16,78,92,.14);
             --border-strong: rgba(16,78,92,.26);
             /* Accent / brand teal — the "muted" background colour behind white text */
@@ -50,6 +51,8 @@
             --brand: #0f6f78;           /* links & focus */
             --brand-strong: #095e66;
             --success: #0c7a43;         /* white text clears AA on this green */
+            --installed-line: #2ea9b3;  /* "Installed" chip — brand light teal outline */
+            --installed-text: #238088;  /* ~20% darker brand teal; clears AA (4.65) on white */
             --danger: #b42318;
             --warn: #a36400;
             --radius: 14px;
@@ -73,6 +76,9 @@
             --ink-2: #b7cbcd;
             --muted: #93a9ab;
             --muted-2: #6e868a;
+            --muted-soft: #b3c3c4;      /* card <p> — ~30% lighter than dark --muted */
+            --installed-line: #5fd0d8;  /* brand light teal outline (dark) */
+            --installed-text: #7fe0e6;  /* bright teal text, legible on dark cards */
             --border: rgba(120,205,210,.16);
             --border-strong: rgba(120,205,210,.30);
             --accent: #0f7b83;
@@ -215,7 +221,7 @@
             background: var(--surface-2); border: 1px solid var(--border);
             padding: 3px 9px; border-radius: 999px;
         }
-        .tag.ok { background: var(--success); border-color: var(--success); color: #fff; }
+        .tag.ok { background: transparent; border-color: var(--installed-line); color: var(--installed-text); }
         .tag.muted { color: var(--muted); }
         .tag.brand { background: var(--accent); border-color: var(--accent-strong); color: #fff; }
 
@@ -283,7 +289,7 @@
         .prompt-library { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
         .prompt-card { padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
         .prompt-card h3 { font-size: .92rem; margin: 8px 0 6px; }
-        .prompt-card p { font-size: .84rem; color: var(--muted); }
+        .prompt-card p { font-size: .84rem; color: var(--muted-soft); }
 
         /* ---- Progress ---- */
         .progress { margin-top: 16px; display: none; }
