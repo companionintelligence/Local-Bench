@@ -80,15 +80,10 @@
         }
         .brand { display: flex; align-items: center; gap: 12px; }
         .brand-logo { height: 30px; width: auto; flex: 0 0 auto; display: block; }
-<<<<<<< HEAD
-        .brand-divider { width: 1px; height: 22px; background: var(--border-strong); flex: 0 0 auto; }
-        .brand-app { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
-        @media (max-width: 480px) { .brand-divider, .brand-app { display: none; } }
-=======
         .brand-sep { width: 1px; height: 22px; background: var(--border-strong); flex: 0 0 auto; }
         .brand-app { font-size: 1.06rem; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
         @media (max-width: 640px) { .brand-logo { height: 26px; } }
->>>>>>> origin/main
+        @media (max-width: 480px) { .brand-sep, .brand-app { display: none; } }
         .topbar-meta { display: flex; align-items: center; gap: 10px; }
         .pill {
             display: inline-flex; align-items: center; gap: 7px;
@@ -309,13 +304,8 @@
     <div class="topbar">
         <div class="wrap topbar-inner">
             <div class="brand">
-<<<<<<< HEAD
-                <img class="brand-logo" src="assets/ci-logo-banner.svg" alt="Companion Intelligence" width="109" height="30">
-                <span class="brand-divider" aria-hidden="true"></span>
-=======
                 <img class="brand-logo" src="assets/2024_CI__Logo_Banner_Color_small-lightmode.svg" alt="Companion Intelligence" width="109" height="30" />
                 <span class="brand-sep" aria-hidden="true"></span>
->>>>>>> origin/main
                 <span class="brand-app">Local-Bench</span>
             </div>
             <div class="topbar-meta">
