@@ -120,15 +120,21 @@
             border-bottom: 1px solid var(--border);
         }
         .topbar-inner {
+            position: relative;
             display: flex; align-items: center; justify-content: space-between;
             gap: 16px; padding: 14px 0;
         }
         .brand { display: flex; align-items: center; gap: 12px; }
         .brand-logo { height: 30px; width: auto; flex: 0 0 auto; display: block; }
-        .brand-sep { width: 1px; height: 22px; background: var(--border-strong); flex: 0 0 auto; }
-        .brand-app { font-size: 1.06rem; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
-        @media (max-width: 640px) { .brand-logo { height: 26px; } }
-        @media (max-width: 480px) { .brand-sep, .brand-app { display: none; } }
+        /* Centered wordmark — all caps, 400 weight, cap-height matched to the
+           logo icon's outer coloured edge (~28.7px → ~41px Montserrat). */
+        .brand-app {
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            margin: 0; font-size: 41px; line-height: 1; font-weight: 400;
+            text-transform: uppercase; letter-spacing: .04em; color: var(--ink);
+            white-space: nowrap; pointer-events: none;
+        }
+        @media (max-width: 640px) { .brand-logo { height: 26px; } .brand-app { display: none; } }
         .brand-logo-dark { display: none; }
         [data-theme="dark"] .brand-logo-light { display: none; }
         [data-theme="dark"] .brand-logo-dark { display: block; }
@@ -160,7 +166,7 @@
         .hero { padding: 46px 0 8px; }
         .hero h1 {
             font-size: 2.4rem; font-weight: 800; letter-spacing: -.025em;
-            line-height: 1.08; max-width: 18ch;
+            line-height: 1.08; max-width: 24ch;
         }
         .hero p.lede { margin-top: 14px; color: var(--muted); font-size: 1.08rem; max-width: 62ch; }
         @media (max-width: 768px) { .hero { padding: 30px 0 4px; } .hero h1 { font-size: 1.7rem; } }
@@ -366,12 +372,10 @@
             <div class="brand">
                 <img class="brand-logo brand-logo-light" src="assets/2024_CI__Logo_Banner_Color_small-lightmode.svg" alt="Companion Intelligence" width="109" height="30" />
                 <img class="brand-logo brand-logo-dark" src="assets/2024_CI__Logo_Banner_Color_small-darkmode.svg" alt="Companion Intelligence" width="109" height="30" />
-                <span class="brand-sep" aria-hidden="true"></span>
-                <span class="brand-app">Local-Bench</span>
             </div>
+            <span class="brand-app">Local Bench</span>
             <div class="topbar-meta">
                 <span class="pill hide-sm" id="ollamaStatus"><span class="dot" id="ollamaDot"></span><span id="ollamaLabel">Connecting…</span></span>
-                <span class="pill"><span class="dot ok"></span>Local-first</span>
                 <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle light or dark theme" title="Toggle theme">
                     <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                     <svg class="icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
@@ -382,8 +386,8 @@
 
     <div class="wrap">
         <section class="hero">
-            <h1>Local LLM benchmark &amp; intelligence catalog</h1>
-            <p class="lede">Measure throughput for the models you run locally via Ollama, and compare them against the curated Companion catalog ranked by intelligence.</p>
+            <h1>Local LLM benchmark<br />&amp; intelligence catalog</h1>
+            <p class="lede">Measure throughput for the models you run locally via Ollama, and compare their skills at various tasks.</p>
 
             <div class="summary" id="summary">
                 <div class="summary-card"><div class="k">Catalog models</div><div class="v" id="sumCatalog">—</div><div class="sub" id="sumCatalogSub">Curated Companion catalog</div></div>
