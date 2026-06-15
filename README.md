@@ -6,6 +6,8 @@ Local-Bench measures the token-generation speed of models you run locally (via [
 
 ![Local-Bench dashboard](docs/screenshots/00-hero.png)
 
+![Local-Bench dashboard walkthrough](docs/screenshots/local-bench-demo.gif)
+
 ## Screenshots
 
 | Model intelligence catalog | Throughput comparison |
