@@ -5,36 +5,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local-Bench · Companion Intelligence</title>
     <meta name="description" content="Local-Bench — a Companion Intelligence app for benchmarking local LLMs and comparing model intelligence.">
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Ccircle cx='24' cy='24' r='22' fill='%230c0d0e'/%3E%3Cellipse cx='27' cy='24' rx='13' ry='16' fill='none' stroke='white' stroke-width='1.6'/%3E%3Cellipse cx='30' cy='24' rx='5' ry='7' fill='white'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="assets/ci-icon.svg">
+    <!-- Companion Intelligence brand font (matches Hub & Portal). Loaded with display=swap
+         and a full system fallback, so the dashboard still renders offline (local-first). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Chart.js is vendored locally so the dashboard works fully offline (local-first).
          If it fails to load, the UI falls back to CSS bar charts automatically. -->
     <script src="assets/chart.umd.min.js"></script>
     <style>
         :root {
-            /* Companion Intelligence — monochrome, light, minimalist */
-            --bg: #f3f4f5;
+            /* Companion Intelligence — Hub/Portal design system, light colorway.
+               Body content is dark ink on light surfaces; every coloured ("muted")
+               surface — buttons, chips, banners — carries white text at AA contrast. */
+            --bg: #f3fafb;              /* Hub/Portal light background */
+            --bg-deep: #e9f4f7;
             --surface: #ffffff;
-            --surface-2: #fafafb;
-            --ink: #0c0d0e;
-            --ink-2: #2b2e33;
-            --muted: #6b7178;
-            --muted-2: #9aa0a6;
-            --border: #e7e8ea;
-            --border-strong: #d6d8db;
-            --accent: #0c0d0e;          /* primary actions: near-black */
+            --surface-2: #f5fafc;
+            --ink: #12212a;             /* primary text */
+            --ink-2: #344b56;           /* soft text */
+            --muted: #617784;           /* muted text */
+            --muted-2: #8395a0;
+            --border: rgba(16,78,92,.14);
+            --border-strong: rgba(16,78,92,.26);
+            /* Accent / brand teal — the "muted" background colour behind white text */
+            --accent: #0f6f78;
+            --accent-2: #0b8790;
+            --accent-strong: #095e66;
             --accent-ink: #ffffff;
-            --brand: #3b5bdb;           /* single restrained accent (intelligence, focus) */
-            --brand-strong: #2f49b2;
-            --brand-soft: #eef1fd;
-            --success: #1f7a3f;
-            --success-soft: #e6f5ec;
+            --brand: #0f6f78;           /* links & focus */
+            --brand-strong: #095e66;
+            --success: #0c7a43;         /* white text clears AA on this green */
             --danger: #b42318;
-            --danger-soft: #fdecea;
-            --radius: 16px;
+            --warn: #a36400;
+            --radius: 14px;
             --radius-sm: 10px;
-            --shadow: 0 1px 2px rgba(12,13,14,.04), 0 10px 30px rgba(12,13,14,.06);
-            --shadow-sm: 0 1px 2px rgba(12,13,14,.06);
-            --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
+            --shadow: 0 2px 4px rgba(6,108,128,.08), 0 12px 30px rgba(6,108,128,.10);
+            --shadow-sm: 0 1px 2px rgba(6,108,128,.10);
+            --sans: 'Montserrat', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             --mono: ui-monospace, 'SF Mono', SFMono-Regular, 'Cascadia Code', 'Roboto Mono', Menlo, Consolas, monospace;
         }
 
@@ -45,7 +54,7 @@
             color: var(--ink);
             background:
                 radial-gradient(1200px 600px at 12% -8%, #ffffff 0%, rgba(255,255,255,0) 55%),
-                radial-gradient(1000px 520px at 100% 0%, #eceef5 0%, rgba(236,238,245,0) 50%),
+                radial-gradient(1000px 520px at 100% 0%, #e9f4f7 0%, rgba(233,244,247,0) 50%),
                 var(--bg);
             min-height: 100vh;
             -webkit-font-smoothing: antialiased;
@@ -70,10 +79,10 @@
             gap: 16px; padding: 14px 0;
         }
         .brand { display: flex; align-items: center; gap: 12px; }
-        .brand-mark { width: 34px; height: 34px; flex: 0 0 auto; display: block; }
-        .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
-        .brand-org { font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-        .brand-app { font-size: 1.06rem; font-weight: 700; letter-spacing: -.01em; }
+        .brand-logo { height: 30px; width: auto; flex: 0 0 auto; display: block; }
+        .brand-divider { width: 1px; height: 22px; background: var(--border-strong); flex: 0 0 auto; }
+        .brand-app { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
+        @media (max-width: 480px) { .brand-divider, .brand-app { display: none; } }
         .topbar-meta { display: flex; align-items: center; gap: 10px; }
         .pill {
             display: inline-flex; align-items: center; gap: 7px;
@@ -125,9 +134,11 @@
             border: 1px solid var(--border); background: var(--surface-2);
             border-radius: var(--radius-sm); padding: 14px 16px; color: var(--ink-2); font-size: .92rem;
         }
-        .note.brand { background: var(--brand-soft); border-color: #d9e0fb; color: #25336e; }
-        .note.warn { background: #fff8ec; border-color: #f3e2bd; color: #6b4e10; }
-        .note.error { background: var(--danger-soft); border-color: #f3c9c4; color: #7c1d15; }
+        .note.brand { background: var(--accent); border-color: var(--accent-strong); color: #fff; }
+        .note.warn { background: var(--warn); border-color: #855200; color: #fff; }
+        .note.error { background: var(--danger); border-color: #8f1b12; color: #fff; }
+        .note.brand strong, .note.warn strong, .note.error strong { color: #fff; }
+        .note.brand a { color: #fff; text-decoration: underline; }
 
         /* ---- Tags / chips ---- */
         .tags { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -137,9 +148,9 @@
             background: var(--surface-2); border: 1px solid var(--border);
             padding: 3px 9px; border-radius: 999px;
         }
-        .tag.ok { background: var(--success-soft); border-color: #cfe9d8; color: var(--success); }
+        .tag.ok { background: var(--success); border-color: var(--success); color: #fff; }
         .tag.muted { color: var(--muted); }
-        .tag.brand { background: var(--brand-soft); border-color: #dfe4fb; color: var(--brand-strong); }
+        .tag.brand { background: var(--accent); border-color: var(--accent-strong); color: #fff; }
 
         /* ---- Buttons ---- */
         .btn {
@@ -150,8 +161,8 @@
         }
         .btn:active:not(:disabled) { transform: translateY(1px); }
         .btn:disabled { opacity: .55; cursor: not-allowed; }
-        .btn-primary { background: var(--accent); color: var(--accent-ink); }
-        .btn-primary:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(12,13,14,.22); }
+        .btn-primary { background: linear-gradient(180deg, #0f7b83, #095e66); color: var(--accent-ink); border-color: var(--accent-strong); }
+        .btn-primary:hover:not(:disabled) { box-shadow: 0 6px 18px rgba(9,94,102,.28); }
         .btn-ghost { background: var(--surface); color: var(--ink-2); border-color: var(--border-strong); }
         .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
         .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
@@ -176,8 +187,8 @@
         .model-opt .tags { margin-top: 10px; }
         .iq {
             display: inline-flex; align-items: baseline; gap: 4px;
-            font-weight: 700; color: var(--brand-strong);
-            background: var(--brand-soft); border: 1px solid #dfe4fb;
+            font-weight: 700; color: #fff;
+            background: var(--accent); border: 1px solid var(--accent-strong);
             border-radius: 999px; padding: 2px 9px; font-size: .76rem;
         }
         .iq .n { font-size: .86rem; }
@@ -191,7 +202,7 @@
             background: var(--surface); border: 1px solid var(--border-strong);
             border-radius: 10px; padding: 11px 12px;
         }
-        select.input:focus, textarea.input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(59,91,219,.16); }
+        select.input:focus, textarea.input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(15,111,120,.18); }
         textarea.input { min-height: 84px; resize: vertical; }
         .prompt-desc { margin-top: 8px; font-size: .86rem; color: var(--muted); }
         .prompt-preview {
@@ -227,7 +238,7 @@
         .iq-model .nm { font-weight: 700; font-size: .94rem; word-break: break-word; }
         .iq-model .sub { font-size: .78rem; color: var(--muted); margin-top: 2px; }
         .iq-bar { height: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
-        .iq-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #2b2e33, var(--brand)); border-radius: 999px; }
+        .iq-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-strong), var(--accent-2)); border-radius: 999px; }
         .iq-score { font-weight: 800; font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
         .iq-score.na { color: var(--muted-2); font-weight: 600; }
         @media (max-width: 640px) {
@@ -255,7 +266,7 @@
         .fb-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr auto; gap: 12px; align-items: center; }
         .fb-label { font-weight: 600; font-size: .9rem; word-break: break-word; }
         .fb-bar { height: 22px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
-        .fb-fill { height: 100%; background: linear-gradient(90deg, #2b2e33, var(--brand)); }
+        .fb-fill { height: 100%; background: linear-gradient(90deg, var(--accent-strong), var(--accent-2)); }
         .fb-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .chart-insights { margin-top: 14px; }
 
@@ -292,17 +303,9 @@
     <div class="topbar">
         <div class="wrap topbar-inner">
             <div class="brand">
-                <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
-                    <circle cx="24" cy="24" r="22" fill="#0c0d0e"/>
-                    <ellipse cx="27" cy="24" rx="13" ry="16" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.92"/>
-                    <ellipse cx="29" cy="24" rx="8.5" ry="11" fill="none" stroke="#ffffff" stroke-width="1.2" opacity="0.7"/>
-                    <ellipse cx="31" cy="24" rx="4.5" ry="6.5" fill="#ffffff"/>
-                    <line x1="2" y1="24" x2="46" y2="24" stroke="#ffffff" stroke-width="1" opacity="0.45"/>
-                </svg>
-                <span class="brand-text">
-                    <span class="brand-org">Companion Intelligence</span>
-                    <span class="brand-app">Local-Bench</span>
-                </span>
+                <img class="brand-logo" src="assets/ci-logo-banner.svg" alt="Companion Intelligence" width="109" height="30">
+                <span class="brand-divider" aria-hidden="true"></span>
+                <span class="brand-app">Local-Bench</span>
             </div>
             <div class="topbar-meta">
                 <span class="pill hide-sm" id="ollamaStatus"><span class="dot" id="ollamaDot"></span><span id="ollamaLabel">Connecting…</span></span>
@@ -739,8 +742,8 @@
                     type: 'bar',
                     data: { labels, datasets: [{
                         label: 'Tokens per second', data,
-                        backgroundColor: successfulResults.map((_, i) => i === 0 ? 'rgba(59,91,219,0.9)' : 'rgba(43,46,51,0.82)'),
-                        borderColor: successfulResults.map((_, i) => i === 0 ? 'rgba(47,73,178,1)' : 'rgba(12,13,14,1)'),
+                        backgroundColor: successfulResults.map((_, i) => i === 0 ? 'rgba(15,111,120,0.92)' : 'rgba(52,75,86,0.82)'),
+                        borderColor: successfulResults.map((_, i) => i === 0 ? 'rgba(9,94,102,1)' : 'rgba(18,33,42,1)'),
                         borderWidth: 1, borderRadius: 6
                     }]},
                     options: {
