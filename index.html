@@ -126,11 +126,11 @@
         }
         .brand { display: flex; align-items: center; gap: 12px; }
         .brand-logo { height: 30px; width: auto; flex: 0 0 auto; display: block; }
-        /* Centered wordmark — all caps, 400 weight, cap-height matched to the
-           logo icon's outer coloured edge (~28.7px → ~41px Montserrat). */
+        /* Centered wordmark — all caps, 400 weight. Sized at 60% of the
+           logo-icon cap height (41px → 24.6px). */
         .brand-app {
             position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-            margin: 0; font-size: 41px; line-height: 1; font-weight: 400;
+            margin: 0; font-size: 24.6px; line-height: 1; font-weight: 400;
             text-transform: uppercase; letter-spacing: .04em; color: var(--ink);
             white-space: nowrap; pointer-events: none;
         }
@@ -387,7 +387,7 @@
     <div class="wrap">
         <section class="hero">
             <h1>Local LLM benchmark<br />&amp; intelligence catalog</h1>
-            <p class="lede">Measure throughput for the models you run locally via Ollama, and compare their skills at various tasks.</p>
+            <p class="lede">Measure throughput for the models you run locally<br />via Ollama, and compare their skills at various tasks.</p>
 
             <div class="summary" id="summary">
                 <div class="summary-card"><div class="k">Catalog models</div><div class="v" id="sumCatalog">—</div><div class="sub" id="sumCatalogSub">Curated Companion catalog</div></div>
