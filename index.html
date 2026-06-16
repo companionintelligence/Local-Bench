@@ -158,6 +158,14 @@
         .theme-toggle .icon-dark { display: none; }
         [data-theme="dark"] .theme-toggle .icon-light { display: none; }
         [data-theme="dark"] .theme-toggle .icon-dark { display: block; }
+        .nav-link {
+            display: inline-flex; align-items: center; height: 36px; padding: 0 14px;
+            font-size: .82rem; font-weight: 600; color: var(--ink-2); text-decoration: none;
+            background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+            box-shadow: var(--shadow-sm); transition: background .12s ease, color .12s ease, border-color .12s ease;
+        }
+        .nav-link:hover { background: var(--surface-2); color: var(--ink); }
+        .nav-link.active { background: var(--accent); color: #fff; border-color: var(--accent-strong); }
         .pill {
             display: inline-flex; align-items: center; gap: 7px;
             font-size: .78rem; font-weight: 600; color: var(--ink-2);
@@ -439,6 +447,23 @@
         footer .footer-links { display: inline-flex; gap: 16px; flex-wrap: wrap; }
         footer .footer-links a { color: var(--ink-2); text-decoration: none; font-weight: 600; }
         footer .footer-links a:hover { color: var(--accent-2); text-decoration: underline; }
+
+        /* ---- In-app docs (wiki) ---- */
+        .docs { padding: 26px 0 64px; }
+        .docs-article { max-width: 760px; }
+        .docs-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; font-size: .85rem; font-weight: 600; color: var(--muted); text-decoration: none; }
+        .docs-back:hover { color: var(--ink); }
+        .docs-article h1 { font-size: 1.9rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
+        .docs-article h2 { font-size: 1.2rem; font-weight: 700; letter-spacing: -.01em; margin-top: 34px; }
+        .docs-lede { font-size: 1.08rem; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+        .docs-article p { color: var(--ink-2); line-height: 1.7; margin-top: 12px; }
+        .docs-article ul { margin: 12px 0 0; padding-left: 22px; color: var(--ink-2); line-height: 1.6; }
+        .docs-article li { margin-top: 9px; }
+        .docs-article li strong { color: var(--ink); }
+        .docs-article a { color: var(--accent-2); text-decoration: none; font-weight: 600; }
+        .docs-article a:hover { text-decoration: underline; }
+        .docs-links { list-style: none; padding-left: 0; }
+        .docs-links li { margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -450,6 +475,7 @@
             </div>
             <span class="brand-app">Local Bench</span>
             <div class="topbar-meta">
+                <a class="nav-link" id="docsNav" href="#docs">Docs</a>
                 <span class="pill hide-sm" id="ollamaStatus"><span class="dot" id="ollamaDot"></span><span id="ollamaLabel">Connecting…</span></span>
                 <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle light or dark theme" title="Toggle theme">
                     <svg class="icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -459,7 +485,7 @@
         </div>
     </div>
 
-    <div class="wrap">
+    <div class="wrap" id="heroWrap">
         <section class="hero">
             <h1>Local LLM benchmark<br />&amp; intelligence catalog</h1>
             <p class="lede">Measure throughput for the models you run locally via Ollama, and compare their skills at various tasks. Run Ollama with <code class="cmd" title="Click to copy">ollama serve</code> in a terminal application.</p>
@@ -473,7 +499,7 @@
         </section>
     </div>
 
-    <main class="wrap">
+    <main class="wrap" id="dashboardMain">
         <div id="errorContainer"></div>
 
         <!-- Run benchmarks -->
@@ -615,6 +641,49 @@
                 </div>
             </div>
         </section>
+    </main>
+
+    <!-- In-app documentation (wiki-style), toggled from the Docs nav link (#docs) -->
+    <main class="wrap docs" id="docsView" hidden>
+        <a class="docs-back" href="#" onclick="location.hash=''; return false;">&larr; Back to dashboard</a>
+        <article class="docs-article">
+            <h1>Local Bench</h1>
+            <p class="docs-lede">Local Bench is a companion app that benchmarks local language models on your own hardware. It runs a set of prompts through models served by Ollama, measures how each one performs, and saves the results so you can compare them over time.</p>
+
+            <h2>What it shows, and why</h2>
+            <p>Local Bench shows how a model actually behaves on your machine:</p>
+            <ul>
+                <li><strong>Throughput and timing</strong> for each model (how quickly it produces tokens).</li>
+                <li><strong>Your system specs</strong> recorded next to every run, so a number always has context.</li>
+                <li><strong>A history of runs</strong>, stored to disk, so you can compare before and after a change such as a new GPU, a different quantization, or a newer model.</li>
+            </ul>
+            <p><strong>Why it matters:</strong> a model that is fast on someone else's hardware may be too slow on yours. Before you build anything on top of a local model, Local Bench tells you what to expect, in real numbers, on the hardware you own.</p>
+
+            <h2>Types of prompts</h2>
+            <p>Local Bench runs a set of benchmark prompts rather than a single one, because different workloads stress a model in different ways. These categories map to how you will actually use a model:</p>
+            <ul>
+                <li><strong>Short prompts with short answers.</strong> Closest to quick, high-frequency calls. Latency matters most here.</li>
+                <li><strong>Long-context prompts.</strong> Large inputs such as documents, transcripts, or chat history test how a model handles a full context window.</li>
+                <li><strong>Reasoning or multi-step prompts.</strong> Longer generations where steady throughput and stability matter.</li>
+            </ul>
+            <p>Pick the prompt types that match your real use case and weigh the results accordingly.</p>
+
+            <h2>Building multi-agent systems</h2>
+            <p>A multi-agent system runs several models, or several copies of a model, working together: one plans, others carry out steps, another reviews. On local hardware they all share the same GPU and memory, so performance is a budget you spend.</p>
+            <p>Local Bench helps you plan that budget:</p>
+            <ul>
+                <li><strong>Match models to roles.</strong> Put a small, fast model on high-frequency agents (routing, simple tool calls) and reserve a larger, slower model for the few steps that need deeper reasoning.</li>
+                <li><strong>Know your ceiling.</strong> Throughput figures tell you roughly how many agents can run at once before the system slows down.</li>
+                <li><strong>Re-test after changes.</strong> When you swap a model or change hardware, run the benchmark again so your agent design still fits the numbers.</li>
+                <li><strong>Start small.</strong> Benchmark the one or two models you plan to use, confirm they are fast enough for the busiest agent in your system, then add more agents from there.</li>
+            </ul>
+
+            <h2>Learn more</h2>
+            <ul class="docs-links">
+                <li><a href="https://docs.ci.computer/" target="_blank" rel="noopener">Local Bench on the Companion Intelligence docs</a></li>
+                <li><a href="https://github.com/companionintelligence/Local-Bench" target="_blank" rel="noopener">Local Bench on GitHub</a></li>
+            </ul>
+        </article>
     </main>
 
     <footer>
@@ -1405,7 +1474,24 @@
             });
         } catch (e) { /* matchMedia unavailable — stay on initial theme */ }
 
+        // ---- In-app docs routing (#docs) ----
+        function showDocs(show) {
+            const docs = document.getElementById('docsView');
+            const hero = document.getElementById('heroWrap');
+            const dash = document.getElementById('dashboardMain');
+            const nav = document.getElementById('docsNav');
+            if (!docs || !hero || !dash) return;
+            docs.hidden = !show;
+            hero.hidden = show;
+            dash.hidden = show;
+            if (nav) nav.classList.toggle('active', show);
+            if (show) window.scrollTo(0, 0);
+        }
+        function applyDocsRoute() { showDocs(location.hash === '#docs'); }
+        window.addEventListener('hashchange', applyDocsRoute);
+
         // Bootstrap
+        applyDocsRoute();
         loadMeta().then(loadAvailableModels);
         loadSystemSpecs();
         loadResults();
