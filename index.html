@@ -207,6 +207,19 @@
         .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
         .section-head h2 { font-size: 1.18rem; font-weight: 700; letter-spacing: -.01em; }
         .section-head .hint { font-size: .85rem; color: var(--muted); }
+        .section-head-right { display: flex; align-items: center; gap: 10px; align-self: center; }
+        .collapse-toggle {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 28px; flex: 0 0 auto; padding: 0;
+            background: var(--surface); border: 1px solid var(--border); color: var(--ink-2);
+            border-radius: 8px; cursor: pointer; box-shadow: var(--shadow-sm);
+            transition: background .12s ease, color .12s ease;
+        }
+        .collapse-toggle:hover { background: var(--surface-2); color: var(--ink); }
+        .collapse-toggle svg { width: 16px; height: 16px; display: block; transition: transform .2s ease; }
+        /* Chevron points up when expanded; flips to point down when collapsed. */
+        .section.collapsed .collapse-toggle svg { transform: rotate(180deg); }
+        .section.collapsed > .card { display: none; }
         .card {
             background: var(--surface); border: 1px solid var(--border);
             border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px;
@@ -473,12 +486,17 @@
         </section>
 
         <!-- Model intelligence -->
-        <section class="section">
+        <section class="section" id="intelligenceSection">
             <div class="section-head">
                 <h2>Model intelligence</h2>
-                <span class="hint" id="iqSourceHint">Artificial Analysis Intelligence Index</span>
+                <div class="section-head-right">
+                    <span class="hint" id="iqSourceHint">Artificial Analysis Intelligence Index</span>
+                    <button class="collapse-toggle" id="intelligenceToggle" type="button" aria-expanded="true" aria-controls="intelligenceBody" aria-label="Collapse section" onclick="toggleIntelligence()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+                    </button>
+                </div>
             </div>
-            <div class="card">
+            <div class="card" id="intelligenceBody">
                 <div class="iq-list" id="intelligenceList"><p style="color:var(--muted)">Loading curated catalog…</p></div>
                 <div class="iq-foot" id="intelligenceFoot"></div>
             </div>
@@ -558,6 +576,7 @@
         let modelIndexByName = {};
         let lastResults = [];
         let latestSpecs = null;
+        let intelligenceAutoCollapsed = false;
         let intelligenceMeta = { source: 'Artificial Analysis Intelligence Index', url: 'https://artificialanalysis.ai/', asOf: '' };
 
         function escapeHtml(value) {
@@ -831,6 +850,26 @@
             });
             const exportBtn = document.getElementById('exportPdfBtn');
             if (exportBtn) exportBtn.hidden = results.length === 0;
+            // Once results are ready, collapse the Model intelligence section to keep
+            // focus on the run output. Only auto-collapse once so manual toggles stick.
+            if (results.length && !intelligenceAutoCollapsed) {
+                setIntelligenceCollapsed(true);
+                intelligenceAutoCollapsed = true;
+            }
+        }
+
+        function setIntelligenceCollapsed(collapsed) {
+            const section = document.getElementById('intelligenceSection');
+            const toggle = document.getElementById('intelligenceToggle');
+            if (!section || !toggle) return;
+            section.classList.toggle('collapsed', collapsed);
+            toggle.setAttribute('aria-expanded', String(!collapsed));
+            toggle.setAttribute('aria-label', collapsed ? 'Expand section' : 'Collapse section');
+        }
+
+        function toggleIntelligence() {
+            const section = document.getElementById('intelligenceSection');
+            if (section) setIntelligenceCollapsed(!section.classList.contains('collapsed'));
         }
 
         function displayChart(results) {
