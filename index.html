@@ -165,17 +165,26 @@
         }
         .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-2); }
         .pill .dot.ok { background: var(--success); }
-        .pill .dot.warn { background: #c98a00; }
+        /* Amber "Ollama unavailable" indicator — slow, calm breathing glow. */
+        .pill .dot.warn {
+            background: #c98a00;
+            animation: ollama-breathe 3.4s ease-in-out infinite;
+        }
+        @keyframes ollama-breathe {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(201,138,0,0); opacity: .7; transform: scale(1); }
+            50%      { box-shadow: 0 0 9px 2px rgba(201,138,0,.7); opacity: 1; transform: scale(1.15); }
+        }
+        @media (prefers-reduced-motion: reduce) { .pill .dot.warn { animation: none; } }
         @media (max-width: 640px) { .topbar-meta .pill.hide-sm { display: none; } }
 
         /* ---- Hero ---- */
         .hero { padding: 46px 0 8px; }
         .hero h1 {
-            font-size: 2.4rem; font-weight: 800; letter-spacing: -.025em;
+            font-size: 1.68rem; font-weight: 800; letter-spacing: -.025em;
             line-height: 1.08; max-width: 24ch;
         }
         .hero p.lede { margin-top: 14px; color: var(--muted); font-size: 1.08rem; max-width: 62ch; }
-        @media (max-width: 768px) { .hero { padding: 30px 0 4px; } .hero h1 { font-size: 1.7rem; } }
+        @media (max-width: 768px) { .hero { padding: 30px 0 4px; } .hero h1 { font-size: 1.19rem; } }
 
         .summary {
             display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 28px;
@@ -212,6 +221,18 @@
         .note.error { background: var(--danger); border-color: #8f1b12; color: #fff; }
         .note.brand strong, .note.warn strong, .note.error strong { color: #fff; }
         .note.brand a { color: #fff; text-decoration: underline; }
+
+        /* Inline command chip — click to copy (e.g. `ollama serve`). */
+        code.cmd {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: .9em; background: var(--surface-2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 1px 7px; color: var(--ink);
+            cursor: pointer; white-space: nowrap; transition: background .12s ease;
+        }
+        code.cmd:hover { background: var(--surface); }
+        code.cmd.copied { color: var(--success); border-color: var(--success); }
+        .note.warn code.cmd { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); color: #fff; }
+        .note.warn code.cmd.copied { color: #fff; border-color: #fff; }
 
         /* ---- Tags / chips ---- */
         .tags { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -393,7 +414,7 @@
     <div class="wrap">
         <section class="hero">
             <h1>Local LLM benchmark<br />&amp; intelligence catalog</h1>
-            <p class="lede">Measure throughput for the models you run locally via Ollama, and compare their skills at various tasks.</p>
+            <p class="lede">Measure throughput for the models you run locally via Ollama, and compare their skills at various tasks. Run Ollama with <code class="cmd" title="Click to copy">ollama serve</code> in a terminal application.</p>
 
             <div class="summary" id="summary">
                 <div class="summary-card"><div class="k">Catalog models</div><div class="v" id="sumCatalog">—</div><div class="sub" id="sumCatalogSub">Curated Companion catalog</div></div>
@@ -590,13 +611,28 @@
             else { dot.className = 'dot'; label.textContent = 'Connecting…'; }
         }
 
+        // Click an inline command chip (e.g. `ollama serve`) to copy it to the clipboard.
+        document.addEventListener('click', (event) => {
+            const chip = event.target.closest('code.cmd');
+            if (!chip || chip.classList.contains('copied')) return;
+            const command = chip.textContent;
+            const showCopied = () => {
+                chip.classList.add('copied');
+                chip.textContent = 'Copied!';
+                setTimeout(() => { chip.textContent = command; chip.classList.remove('copied'); }, 1100);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(command).then(showCopied).catch(() => {});
+            }
+        });
+
         function updateModelCatalogSummary(models, options = {}) {
             const summary = document.getElementById('modelCatalogSummary');
             const installedCount = models.filter(m => m.installed).length;
             const supportedCount = models.filter(m => m.supported).length;
             const customInstalledCount = models.filter(m => m.installed && !m.supported).length;
             const note = options.ollamaUnavailable
-                ? '<span class="note warn" style="flex:1 1 100%;margin-top:8px">Ollama is currently unavailable — showing the curated catalog only. Start Ollama to enable benchmarking.</span>'
+                ? '<span class="note warn" style="flex:1 1 100%;margin-top:8px">Ollama is currently unavailable — showing the curated catalog only. Open a terminal application and run <code class="cmd" title="Click to copy">ollama serve</code> to start it, then refresh to enable benchmarking.</span>'
                 : '<span class="tag muted" style="flex:1 1 100%;background:none;border:none;padding-left:0">Disabled cards are in the curated catalog but not installed locally.</span>';
             summary.innerHTML = `
                 <span class="tag ok">${installedCount} installed</span>
