@@ -436,6 +436,9 @@
         footer { border-top: 1px solid var(--border); padding: 24px 0 40px; color: var(--muted); font-size: .85rem; }
         footer .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
         footer .conf { font-size: .76rem; color: var(--muted-2); }
+        footer .footer-links { display: inline-flex; gap: 16px; flex-wrap: wrap; }
+        footer .footer-links a { color: var(--ink-2); text-decoration: none; font-weight: 600; }
+        footer .footer-links a:hover { color: var(--accent-2); text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -617,6 +620,10 @@
     <footer>
         <div class="wrap row">
             <span>Local-Bench — a Companion Intelligence app for benchmarking local LLMs.</span>
+            <span class="footer-links">
+                <a href="https://docs.ci.computer/" target="_blank" rel="noopener">Documentation</a>
+                <a href="https://discord.com/invite/yQp9hwpzAa" target="_blank" rel="noopener">Discord</a>
+            </span>
             <span class="conf">Private &amp; Confidential — Property of Lifescope Inc.</span>
         </div>
     </footer>
