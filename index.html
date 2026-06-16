@@ -448,22 +448,47 @@
         footer .footer-links a { color: var(--ink-2); text-decoration: none; font-weight: 600; }
         footer .footer-links a:hover { color: var(--accent-2); text-decoration: underline; }
 
-        /* ---- In-app docs (wiki) ---- */
-        .docs { padding: 26px 0 64px; }
-        .docs-article { max-width: 760px; }
-        .docs-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; font-size: .85rem; font-weight: 600; color: var(--muted); text-decoration: none; }
+        /* ---- In-app docs (sidebar + content, one tab per topic) ---- */
+        .docs { padding: 18px 0 60px; }
+        .docs-layout {
+            display: flex; min-height: calc(100vh - 240px);
+            border: 1px solid var(--border); border-radius: var(--radius);
+            overflow: hidden; background: var(--surface); box-shadow: var(--shadow-sm);
+        }
+        .docs-sidebar {
+            width: 250px; flex-shrink: 0; padding: 18px 14px;
+            border-right: 1px solid var(--border); background: var(--surface-2); overflow-y: auto;
+        }
+        .docs-sidebar h2 { margin: 0 0 14px; font-size: .95rem; font-weight: 700; color: var(--ink); }
+        .docs-category { margin-bottom: 18px; }
+        .docs-category h3 { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+        .docs-category ul { list-style: none; padding: 0; margin: 0; }
+        .docs-category li { margin-bottom: 2px; }
+        .docs-tab {
+            width: 100%; text-align: left; padding: 8px 10px; border: none; background: transparent;
+            cursor: pointer; font-family: inherit; font-size: .88rem; font-weight: 500; color: var(--ink-2);
+            border-radius: 7px; transition: background .12s ease, color .12s ease;
+        }
+        .docs-tab:hover { background: var(--surface); color: var(--ink); }
+        .docs-tab.active { background: var(--surface); color: var(--accent-2); font-weight: 700; box-shadow: inset 2px 0 0 var(--accent); }
+        .docs-content { flex: 1; min-width: 0; padding: 24px 28px; overflow-y: auto; }
+        .docs-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 18px; font-size: .82rem; font-weight: 600; color: var(--muted); text-decoration: none; }
         .docs-back:hover { color: var(--ink); }
-        .docs-article h1 { font-size: 1.9rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.15; }
-        .docs-article h2 { font-size: 1.2rem; font-weight: 700; letter-spacing: -.01em; margin-top: 34px; }
-        .docs-lede { font-size: 1.08rem; color: var(--muted); margin-top: 12px; line-height: 1.6; }
-        .docs-article p { color: var(--ink-2); line-height: 1.7; margin-top: 12px; }
-        .docs-article ul { margin: 12px 0 0; padding-left: 22px; color: var(--ink-2); line-height: 1.6; }
-        .docs-article li { margin-top: 9px; }
-        .docs-article li strong { color: var(--ink); }
-        .docs-article a { color: var(--accent-2); text-decoration: none; font-weight: 600; }
-        .docs-article a:hover { text-decoration: underline; }
+        .docs-topic { max-width: 780px; }
+        .docs-topic h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.2; margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+        .docs-topic h2 { font-size: 1.12rem; font-weight: 700; letter-spacing: -.01em; margin: 26px 0 0; }
+        .docs-topic p { color: var(--ink-2); line-height: 1.7; margin-top: 12px; }
+        .docs-topic ul { margin: 12px 0 0; padding-left: 22px; color: var(--ink-2); line-height: 1.6; }
+        .docs-topic li { margin-top: 9px; }
+        .docs-topic li strong { color: var(--ink); }
+        .docs-topic a { color: var(--accent-2); text-decoration: none; font-weight: 600; }
+        .docs-topic a:hover { text-decoration: underline; }
         .docs-links { list-style: none; padding-left: 0; }
         .docs-links li { margin-top: 10px; }
+        @media (max-width: 760px) {
+            .docs-layout { flex-direction: column; min-height: 0; }
+            .docs-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+        }
     </style>
 </head>
 <body>
@@ -643,47 +668,74 @@
         </section>
     </main>
 
-    <!-- In-app documentation (wiki-style), toggled from the Docs nav link (#docs) -->
+    <!-- In-app documentation (CI-Import-Tools style: sidebar + content, one tab per topic) -->
     <main class="wrap docs" id="docsView" hidden>
-        <a class="docs-back" href="#" onclick="location.hash=''; return false;">&larr; Back to dashboard</a>
-        <article class="docs-article">
-            <h1>Local Bench</h1>
-            <p class="docs-lede">Local Bench is a companion app that benchmarks local language models on your own hardware. It runs a set of prompts through models served by Ollama, measures how each one performs, and saves the results so you can compare them over time.</p>
+        <div class="docs-layout">
+            <aside class="docs-sidebar">
+                <h2>Documentation</h2>
+                <div class="docs-category">
+                    <h3>Local Bench</h3>
+                    <ul>
+                        <li><button class="docs-tab active" data-topic="overview" onclick="selectDocTopic('overview')">Overview</button></li>
+                        <li><button class="docs-tab" data-topic="what-it-shows" onclick="selectDocTopic('what-it-shows')">What it shows, and why</button></li>
+                        <li><button class="docs-tab" data-topic="prompts" onclick="selectDocTopic('prompts')">Types of prompts</button></li>
+                        <li><button class="docs-tab" data-topic="multi-agent" onclick="selectDocTopic('multi-agent')">Building multi-agent systems</button></li>
+                        <li><button class="docs-tab" data-topic="learn-more" onclick="selectDocTopic('learn-more')">Learn more</button></li>
+                    </ul>
+                </div>
+            </aside>
+            <div class="docs-content">
+                <a class="docs-back" href="#" onclick="location.hash=''; return false;">&larr; Back to dashboard</a>
 
-            <h2>What it shows, and why</h2>
-            <p>Local Bench shows how a model actually behaves on your machine:</p>
-            <ul>
-                <li><strong>Throughput and timing</strong> for each model (how quickly it produces tokens).</li>
-                <li><strong>Your system specs</strong> recorded next to every run, so a number always has context.</li>
-                <li><strong>A history of runs</strong>, stored to disk, so you can compare before and after a change such as a new GPU, a different quantization, or a newer model.</li>
-            </ul>
-            <p><strong>Why it matters:</strong> a model that is fast on someone else's hardware may be too slow on yours. Before you build anything on top of a local model, Local Bench tells you what to expect, in real numbers, on the hardware you own.</p>
+                <section class="docs-topic" id="topic-overview">
+                    <h1>Local Bench</h1>
+                    <p>Local Bench is a companion app that benchmarks local language models on your own hardware. It runs a set of prompts through models served by Ollama, measures how each one performs, and saves the results so you can compare them over time.</p>
+                    <p>Everything runs locally. Your prompts and the model responses stay on your machine. Use the tabs on the left to learn what Local Bench shows, the kinds of prompts it runs, and how it helps you plan multi-agent systems.</p>
+                </section>
 
-            <h2>Types of prompts</h2>
-            <p>Local Bench runs a set of benchmark prompts rather than a single one, because different workloads stress a model in different ways. These categories map to how you will actually use a model:</p>
-            <ul>
-                <li><strong>Short prompts with short answers.</strong> Closest to quick, high-frequency calls. Latency matters most here.</li>
-                <li><strong>Long-context prompts.</strong> Large inputs such as documents, transcripts, or chat history test how a model handles a full context window.</li>
-                <li><strong>Reasoning or multi-step prompts.</strong> Longer generations where steady throughput and stability matter.</li>
-            </ul>
-            <p>Pick the prompt types that match your real use case and weigh the results accordingly.</p>
+                <section class="docs-topic" id="topic-what-it-shows" hidden>
+                    <h1>What it shows, and why</h1>
+                    <p>Local Bench shows how a model actually behaves on your machine:</p>
+                    <ul>
+                        <li><strong>Throughput and timing</strong> for each model (how quickly it produces tokens).</li>
+                        <li><strong>Your system specs</strong> recorded next to every run, so a number always has context.</li>
+                        <li><strong>A history of runs</strong>, stored to disk, so you can compare before and after a change such as a new GPU, a different quantization, or a newer model.</li>
+                    </ul>
+                    <p><strong>Why it matters:</strong> a model that is fast on someone else's hardware may be too slow on yours. Before you build anything on top of a local model, Local Bench tells you what to expect, in real numbers, on the hardware you own.</p>
+                </section>
 
-            <h2>Building multi-agent systems</h2>
-            <p>A multi-agent system runs several models, or several copies of a model, working together: one plans, others carry out steps, another reviews. On local hardware they all share the same GPU and memory, so performance is a budget you spend.</p>
-            <p>Local Bench helps you plan that budget:</p>
-            <ul>
-                <li><strong>Match models to roles.</strong> Put a small, fast model on high-frequency agents (routing, simple tool calls) and reserve a larger, slower model for the few steps that need deeper reasoning.</li>
-                <li><strong>Know your ceiling.</strong> Throughput figures tell you roughly how many agents can run at once before the system slows down.</li>
-                <li><strong>Re-test after changes.</strong> When you swap a model or change hardware, run the benchmark again so your agent design still fits the numbers.</li>
-                <li><strong>Start small.</strong> Benchmark the one or two models you plan to use, confirm they are fast enough for the busiest agent in your system, then add more agents from there.</li>
-            </ul>
+                <section class="docs-topic" id="topic-prompts" hidden>
+                    <h1>Types of prompts</h1>
+                    <p>Local Bench runs a set of benchmark prompts rather than a single one, because different workloads stress a model in different ways. These categories map to how you will actually use a model:</p>
+                    <ul>
+                        <li><strong>Short prompts with short answers.</strong> Closest to quick, high-frequency calls. Latency matters most here.</li>
+                        <li><strong>Long-context prompts.</strong> Large inputs such as documents, transcripts, or chat history test how a model handles a full context window.</li>
+                        <li><strong>Reasoning or multi-step prompts.</strong> Longer generations where steady throughput and stability matter.</li>
+                    </ul>
+                    <p>Pick the prompt types that match your real use case and weigh the results accordingly.</p>
+                </section>
 
-            <h2>Learn more</h2>
-            <ul class="docs-links">
-                <li><a href="https://docs.ci.computer/" target="_blank" rel="noopener">Local Bench on the Companion Intelligence docs</a></li>
-                <li><a href="https://github.com/companionintelligence/Local-Bench" target="_blank" rel="noopener">Local Bench on GitHub</a></li>
-            </ul>
-        </article>
+                <section class="docs-topic" id="topic-multi-agent" hidden>
+                    <h1>Building multi-agent systems</h1>
+                    <p>A multi-agent system runs several models, or several copies of a model, working together: one plans, others carry out steps, another reviews. On local hardware they all share the same GPU and memory, so performance is a budget you spend.</p>
+                    <p>Local Bench helps you plan that budget:</p>
+                    <ul>
+                        <li><strong>Match models to roles.</strong> Put a small, fast model on high-frequency agents (routing, simple tool calls) and reserve a larger, slower model for the few steps that need deeper reasoning.</li>
+                        <li><strong>Know your ceiling.</strong> Throughput figures tell you roughly how many agents can run at once before the system slows down.</li>
+                        <li><strong>Re-test after changes.</strong> When you swap a model or change hardware, run the benchmark again so your agent design still fits the numbers.</li>
+                        <li><strong>Start small.</strong> Benchmark the one or two models you plan to use, confirm they are fast enough for the busiest agent in your system, then add more agents from there.</li>
+                    </ul>
+                </section>
+
+                <section class="docs-topic" id="topic-learn-more" hidden>
+                    <h1>Learn more</h1>
+                    <ul class="docs-links">
+                        <li><a href="https://docs.ci.computer/" target="_blank" rel="noopener">Local Bench on the Companion Intelligence docs</a></li>
+                        <li><a href="https://github.com/companionintelligence/Local-Bench" target="_blank" rel="noopener">Local Bench on GitHub</a></li>
+                    </ul>
+                </section>
+            </div>
+        </div>
     </main>
 
     <footer>
@@ -1489,6 +1541,14 @@
         }
         function applyDocsRoute() { showDocs(location.hash === '#docs'); }
         window.addEventListener('hashchange', applyDocsRoute);
+
+        // Switch the active documentation topic (one tab per topic, CI-Import-Tools style).
+        function selectDocTopic(topic) {
+            document.querySelectorAll('#docsView .docs-topic').forEach(s => { s.hidden = s.id !== 'topic-' + topic; });
+            document.querySelectorAll('#docsView .docs-tab').forEach(b => { b.classList.toggle('active', b.dataset.topic === topic); });
+            const content = document.querySelector('#docsView .docs-content');
+            if (content) content.scrollTop = 0;
+        }
 
         // Bootstrap
         applyDocsRoute();
