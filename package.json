@@ -21,7 +21,7 @@
     "performance"
   ],
   "author": "",
-  "license": "AGPL-3.0-only",
+  "license": "SEE LICENSE IN LICENSE.md",
   "dependencies": {
     "axios": "^1.13.2",
     "better-sqlite3": "^12.4.6",
