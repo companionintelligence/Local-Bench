@@ -27,6 +27,7 @@
     <!-- Chart.js is vendored locally so the dashboard works fully offline (local-first).
          If it fails to load, the UI falls back to CSS bar charts automatically. -->
     <script src="assets/chart.umd.min.js"></script>
+    <script src="assets/jspdf.umd.min.js"></script>
     <style>
         :root {
             /* Companion Intelligence — Hub/Portal design system, light colorway.
@@ -136,7 +137,7 @@
            logo icon's outer coloured edge (~28.7px → ~41px Montserrat). */
         .brand-app {
             position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-            margin: 0; font-size: 41px; line-height: 1; font-weight: 400;
+            margin: 0; font-size: 34px; line-height: 1; font-weight: 400;
             text-transform: uppercase; letter-spacing: .04em; color: var(--ink);
             white-space: nowrap; pointer-events: none;
         }
@@ -517,7 +518,10 @@
         <section class="section">
             <div class="section-head">
                 <h2>Detailed results</h2>
-                <button class="btn btn-ghost" onclick="loadResults()">Refresh</button>
+                <div style="display:flex; gap:8px; align-items:center">
+                    <button class="btn btn-primary" id="exportPdfBtn" onclick="exportResultsPdf()" hidden>Export PDF</button>
+                    <button class="btn btn-ghost" onclick="loadResults()">Refresh</button>
+                </div>
             </div>
             <div class="card" style="padding:0; overflow:hidden">
                 <div class="table-scroll">
@@ -553,6 +557,7 @@
         let availableModels = [];
         let modelIndexByName = {};
         let lastResults = [];
+        let latestSpecs = null;
         let intelligenceMeta = { source: 'Artificial Analysis Intelligence Index', url: 'https://artificialanalysis.ai/', asOf: '' };
 
         function escapeHtml(value) {
@@ -753,6 +758,7 @@
         }
 
         function displaySystemSpecs(specs) {
+            latestSpecs = specs || null;
             const el = document.getElementById('systemSpecs');
             if (!specs) {
                 el.className = 'note';
@@ -823,6 +829,8 @@
                     <td>${escapeHtml(new Date(result.timestamp).toLocaleString())}</td>
                     <td><span class="badge ${result.success ? 'ok' : 'fail'}"><span class="dot"></span>${result.status}</span></td>`;
             });
+            const exportBtn = document.getElementById('exportPdfBtn');
+            if (exportBtn) exportBtn.hidden = results.length === 0;
         }
 
         function displayChart(results) {
@@ -905,11 +913,166 @@
                 <div class="stat"><div class="k">Fastest model</div><div class="v" style="font-size:1.25rem">${escapeHtml(fastest.model)}</div></div>`;
         }
 
+        // Trim text with an ellipsis so it fits within maxW at the current font/size.
+        function pdfClip(doc, text, maxW) {
+            text = String(text ?? '');
+            if (doc.getTextWidth(text) <= maxW) return text;
+            let t = text;
+            while (t.length > 1 && doc.getTextWidth(t + '…') > maxW) t = t.slice(0, -1);
+            return t + '…';
+        }
+
+        // Build and download a branded PDF report of the current results.
+        function exportResultsPdf() {
+            if (!lastResults.length) { showError('Run a benchmark first — there are no results to export yet.'); return; }
+            const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+            if (!jsPDFCtor) { showError('PDF library failed to load — refresh the page and try again.'); return; }
+
+            const doc = new jsPDFCtor({ unit: 'pt', format: 'a4' });
+            const PAGE_W = doc.internal.pageSize.getWidth();
+            const PAGE_H = doc.internal.pageSize.getHeight();
+            const MARGIN = 40;
+            const CONTENT_W = PAGE_W - MARGIN * 2;
+
+            const TEAL = [15, 111, 120], TEAL_DK = [9, 94, 102];
+            const INK = [20, 24, 26], MUTED = [110, 124, 130];
+            const GREEN = [12, 122, 67], RED = [180, 35, 24], ZEBRA = [243, 247, 248];
+
+            const now = new Date();
+            const pad = n => String(n).padStart(2, '0');
+
+            // ---- Header band (mirrors the tool's top bar) ----
+            const HEADER_H = 66;
+            doc.setFillColor(TEAL[0], TEAL[1], TEAL[2]);
+            doc.rect(0, 0, PAGE_W, HEADER_H, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(21);
+            doc.text('LOCAL-BENCH', MARGIN, 32);
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+            doc.setTextColor(214, 234, 236);
+            doc.text('Companion Intelligence · Local LLM benchmark report', MARGIN, 50);
+            doc.setFontSize(9);
+            doc.text('Generated ' + now.toLocaleString(), PAGE_W - MARGIN, 32, { align: 'right' });
+
+            let y = HEADER_H + 28;
+
+            // ---- System summary ----
+            doc.setTextColor(INK[0], INK[1], INK[2]);
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+            doc.text('System', MARGIN, y); y += 15;
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+            doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+            const s = latestSpecs;
+            const sysLines = [];
+            if (s) {
+                if (s.serverName) sysLines.push('Server:  ' + s.serverName);
+                if (s.cpuModel) sysLines.push('CPU:  ' + s.cpuModel + (s.cpuCores ? '  (' + s.cpuCores + ' cores / ' + s.cpuThreads + ' threads)' : ''));
+                if (s.totalMemoryGB) sysLines.push('Memory:  ' + s.totalMemoryGB + ' GB');
+                if (s.osType) sysLines.push('OS:  ' + s.osType + ' ' + (s.osVersion || ''));
+                const gpu = (s.gpus || []).map(g => g.model).filter(Boolean).join(', ');
+                if (gpu) sysLines.push('GPU:  ' + gpu);
+            }
+            if (!sysLines.length) sysLines.push('System specifications were not captured for this run.');
+            sysLines.forEach(line => {
+                doc.splitTextToSize(line, CONTENT_W).forEach(w => { doc.text(w, MARGIN, y); y += 13; });
+            });
+            y += 12;
+
+            // ---- Summary stat boxes ----
+            const ok = lastResults.filter(r => r.success && r.tokensPerSecond > 0);
+            const avg = ok.length ? ok.reduce((a, r) => a + r.tokensPerSecond, 0) / ok.length : 0;
+            const fastest = ok.length ? ok.reduce((m, r) => r.tokensPerSecond > m.tokensPerSecond ? r : m) : null;
+            const boxes = [
+                ['Runs recorded', String(lastResults.length)],
+                ['Successful', String(ok.length)],
+                ['Average speed', avg.toFixed(2) + ' t/s']
+            ];
+            const bw = (CONTENT_W - 12 * 2) / 3, bh = 46;
+            boxes.forEach((b, i) => {
+                const bx = MARGIN + i * (bw + 12);
+                doc.setDrawColor(225, 230, 232); doc.setFillColor(249, 251, 251);
+                doc.roundedRect(bx, y, bw, bh, 5, 5, 'FD');
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+                doc.text(b[0].toUpperCase(), bx + 10, y + 17);
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(INK[0], INK[1], INK[2]);
+                doc.text(b[1], bx + 10, y + 37);
+            });
+            y += bh + 16;
+            if (fastest) {
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(TEAL_DK[0], TEAL_DK[1], TEAL_DK[2]);
+                doc.text(pdfClip(doc, 'Top performer:  ' + fastest.model + ' — ' + fastest.tokensPerSecond.toFixed(2) + ' tokens/s', CONTENT_W), MARGIN, y);
+                y += 22;
+            }
+
+            // ---- Results table ----
+            const cols = [
+                { key: 'model', label: 'Model', w: 135, align: 'left' },
+                { key: 'iq', label: 'IQ', w: 32, align: 'center' },
+                { key: 'tps', label: 'Tokens/s', w: 60, align: 'right' },
+                { key: 'tot', label: 'Total tokens', w: 66, align: 'right' },
+                { key: 'dur', label: 'Duration', w: 58, align: 'right' },
+                { key: 'ts', label: 'Timestamp', w: 110, align: 'left' },
+                { key: 'st', label: 'Status', w: 54, align: 'left' }
+            ];
+            let cx = MARGIN; cols.forEach(c => { c.x = cx; cx += c.w; });
+            const ROW_H = 18, PAD = 6;
+            const cellX = c => c.align === 'right' ? c.x + c.w - PAD : c.align === 'center' ? c.x + c.w / 2 : c.x + PAD;
+            const drawHeaderRow = yy => {
+                doc.setFillColor(TEAL_DK[0], TEAL_DK[1], TEAL_DK[2]);
+                doc.rect(MARGIN, yy, CONTENT_W, ROW_H, 'F');
+                doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+                cols.forEach(c => doc.text(c.label, cellX(c), yy + 12, { align: c.align }));
+                return yy + ROW_H;
+            };
+
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(INK[0], INK[1], INK[2]);
+            doc.text('Detailed results', MARGIN, y); y += 8;
+            y = drawHeaderRow(y);
+
+            lastResults.forEach((r, i) => {
+                if (y + ROW_H > PAGE_H - 46) { doc.addPage(); y = MARGIN + 10; y = drawHeaderRow(y); }
+                if (i % 2 === 1) { doc.setFillColor(ZEBRA[0], ZEBRA[1], ZEBRA[2]); doc.rect(MARGIN, y, CONTENT_W, ROW_H, 'F'); }
+                const cat = modelIndexByName[r.model];
+                let ts; try { ts = new Date(r.timestamp).toLocaleString(); } catch (e) { ts = String(r.timestamp || ''); }
+                const values = {
+                    model: r.model,
+                    iq: (cat && cat.intelligenceIndex != null) ? String(cat.intelligenceIndex) : '—',
+                    tps: r.tokensPerSecond.toFixed(2),
+                    tot: String(r.totalTokens),
+                    dur: r.duration.toFixed(2) + ' s',
+                    ts: ts,
+                    st: r.success ? 'Success' : 'Failed'
+                };
+                doc.setFontSize(8.5);
+                cols.forEach(c => {
+                    doc.setFont('helvetica', c.key === 'model' ? 'bold' : 'normal');
+                    if (c.key === 'st') doc.setTextColor(...(r.success ? GREEN : RED));
+                    else doc.setTextColor(INK[0], INK[1], INK[2]);
+                    doc.text(pdfClip(doc, values[c.key], c.w - PAD * 2), cellX(c), y + 12, { align: c.align });
+                });
+                y += ROW_H;
+            });
+
+            // ---- Footer on every page ----
+            const pages = doc.getNumberOfPages();
+            for (let p = 1; p <= pages; p++) {
+                doc.setPage(p);
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150, 160, 164);
+                doc.text('Private & Confidential — Property of Lifescope Inc.', MARGIN, PAGE_H - 22);
+                doc.text('Page ' + p + ' of ' + pages, PAGE_W - MARGIN, PAGE_H - 22, { align: 'right' });
+            }
+
+            const fname = `local-bench-results-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.pdf`;
+            doc.save(fname);
+        }
+
         function showError(message) {
             document.getElementById('errorContainer').innerHTML = `<div class="note error"><strong>Error:</strong> ${escapeHtml(message)}</div>`;
         }
         function showEmptyState() {
             document.getElementById('errorContainer').innerHTML = `<div class="note brand"><strong>Welcome to Local-Bench.</strong> No benchmarks have run yet — select one or more installed models above, pick a prompt, and run a benchmark. Results, charts, and system specs appear here automatically.</div>`;
+            const exportBtn = document.getElementById('exportPdfBtn');
+            if (exportBtn) exportBtn.hidden = true;
         }
         function clearError() { document.getElementById('errorContainer').innerHTML = ''; }
 
