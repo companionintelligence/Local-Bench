@@ -288,6 +288,10 @@ interface BenchmarkResult {
   timestamp: string;
   success: boolean;
   error?: string;
+  /** The exact prompt sent to the model for this run. */
+  prompt?: string;
+  /** The model's generated response text (kept for side-by-side comparison and PDF export). */
+  response?: string;
 }
 
 interface OllamaModel {
@@ -360,7 +364,9 @@ export async function benchmarkModel(modelName: string, customPrompt?: string): 
       totalTokens: totalTokens,
       durationSeconds: parseFloat(durationSeconds.toFixed(2)),
       timestamp: new Date().toISOString(),
-      success: true
+      success: true,
+      prompt: promptToUse,
+      response: responseText
     };
   } catch (error) {
     console.error(`  ✗ Error benchmarking ${modelName}: ${(error as Error).message}`);
@@ -371,7 +377,9 @@ export async function benchmarkModel(modelName: string, customPrompt?: string): 
       durationSeconds: 0,
       timestamp: new Date().toISOString(),
       success: false,
-      error: (error as Error).message
+      error: (error as Error).message,
+      prompt: promptToUse,
+      response: ''
     };
   }
 }

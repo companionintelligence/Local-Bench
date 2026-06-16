@@ -319,12 +319,43 @@
             border-radius: 8px; font-size: .9rem; color: var(--ink-2);
         }
         .prompt-preview .lbl { font-weight: 600; font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
-        .custom-prompt { margin-top: 12px; display: none; }
-        .custom-prompt.active { display: block; }
-        .prompt-library { margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
-        .prompt-card { padding: 13px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
-        .prompt-card h3 { font-size: .92rem; margin: 8px 0 6px; }
+        .prompt-editor-hint { font-weight: 400; color: var(--muted); font-size: .8rem; }
+        .prompt-library { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+        .prompt-card {
+            position: relative; padding: 13px; border: 1px solid var(--border); border-radius: 12px;
+            background: var(--surface-2); cursor: pointer;
+            transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+        }
+        .prompt-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+        .prompt-card.selected { border-color: var(--accent-strong); box-shadow: 0 0 0 2px rgba(15,111,120,.20); background: var(--surface); }
+        .prompt-card h3 { font-size: .92rem; margin: 8px 0 6px; padding-right: 28px; }
         .prompt-card p { font-size: .84rem; color: var(--muted-soft); }
+        .prompt-card-toggle {
+            position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: var(--surface); border: 1px solid var(--border); color: var(--ink-2);
+            border-radius: 7px; cursor: pointer; transition: background .12s ease, color .12s ease;
+        }
+        .prompt-card-toggle:hover { background: var(--surface-2); color: var(--ink); }
+        .prompt-card-toggle svg { width: 13px; height: 13px; display: block; transition: transform .2s ease; }
+        .prompt-card.expanded .prompt-card-toggle svg { transform: rotate(180deg); }
+        .prompt-card-text {
+            margin-top: 10px; padding: 10px; font-size: .82rem; color: var(--ink-2);
+            background: var(--surface); border: 1px solid var(--border); border-radius: 8px; white-space: pre-wrap;
+        }
+
+        /* ---- Response comparison ---- */
+        .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+        @media (max-width: 760px) { .compare-grid { grid-template-columns: 1fr; } }
+        .compare-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+        .response-box {
+            white-space: pre-wrap; word-break: break-word;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: .85rem; line-height: 1.5; color: var(--ink);
+            background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+            padding: 14px; max-height: 460px; overflow-y: auto;
+        }
+        .response-empty { color: var(--danger); font-style: italic; font-family: inherit; }
 
         /* ---- Progress ---- */
         .progress { margin-top: 16px; display: none; }
@@ -461,14 +492,11 @@
                         <option value="">Loading prompts…</option>
                     </select>
                     <div class="prompt-desc" id="promptDescription"></div>
-                    <div class="custom-prompt" id="customPromptContainer">
-                        <label class="field-label" style="margin-top:12px" for="customPromptInput">Custom prompt</label>
-                        <textarea class="input" id="customPromptInput" placeholder="Enter your custom benchmark prompt here…" oninput="updatePromptPreview()"></textarea>
-                    </div>
-                    <div class="prompt-preview">
-                        <div class="lbl">Current prompt</div>
-                        <div id="promptPreviewText">Loading…</div>
-                    </div>
+
+                    <label class="field-label" style="margin-top:14px" for="activePrompt">Current prompt <span class="prompt-editor-hint">— editable; this exact text is sent to the model</span></label>
+                    <textarea class="input" id="activePrompt" placeholder="Select a prompt below or type your own…"></textarea>
+
+                    <label class="field-label" style="margin-top:18px">Prompt library <span class="prompt-editor-hint">— click a card to use it, expand to preview the prompt</span></label>
                     <div class="prompt-library" id="promptLibrary"></div>
                 </div>
 
@@ -560,6 +588,30 @@
                 </div>
             </div>
         </section>
+
+        <!-- Response comparison (two models at a time from the last run) -->
+        <section class="section" id="responseSection" hidden>
+            <div class="section-head">
+                <h2>Response comparison</h2>
+                <span class="hint">Two models side by side from your last run</span>
+            </div>
+            <div class="card">
+                <div class="prompt-preview" style="margin-top:0">
+                    <div class="lbl">Prompt</div>
+                    <div id="responsePrompt"></div>
+                </div>
+                <div class="compare-grid">
+                    <div class="compare-col">
+                        <select class="input" id="compareLeft" onchange="renderCompareSides()" aria-label="Model on the left"></select>
+                        <div class="response-box" id="responseLeft"></div>
+                    </div>
+                    <div class="compare-col">
+                        <select class="input" id="compareRight" onchange="renderCompareSides()" aria-label="Model on the right"></select>
+                        <div class="response-box" id="responseRight"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <footer>
@@ -575,6 +627,7 @@
         let availableModels = [];
         let modelIndexByName = {};
         let lastResults = [];
+        let lastRun = [];
         let latestSpecs = null;
         let intelligenceAutoCollapsed = false;
         let intelligenceMeta = { source: 'Artificial Analysis Intelligence Index', url: 'https://artificialanalysis.ai/', asOf: '' };
@@ -620,11 +673,41 @@
 
         function renderPromptLibrary(prompts) {
             document.getElementById('promptLibrary').innerHTML = prompts.map(prompt => `
-                <div class="prompt-card">
+                <div class="prompt-card" data-id="${escapeHtml(prompt.id)}" role="button" tabindex="0" onclick="selectPromptCard('${escapeHtml(prompt.id)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectPromptCard('${escapeHtml(prompt.id)}');}">
+                    <button class="prompt-card-toggle" type="button" aria-expanded="false" aria-label="Show prompt" onclick="togglePromptCard(this, event)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                    </button>
                     <div class="tags"><span class="tag brand">${escapeHtml(prompt.category)}</span><span class="tag muted">${escapeHtml(prompt.type)}</span></div>
                     <h3>${escapeHtml(prompt.name)}</h3>
                     <p>${escapeHtml(prompt.description)}</p>
+                    <div class="prompt-card-text" hidden>${escapeHtml(prompt.prompt)}</div>
                 </div>`).join('');
+            markSelectedPromptCard(document.getElementById('promptSelect').value);
+        }
+
+        // Reveal/hide the full prompt text inside a card without selecting it.
+        function togglePromptCard(btn, event) {
+            event.stopPropagation();
+            const card = btn.closest('.prompt-card');
+            if (!card) return;
+            const text = card.querySelector('.prompt-card-text');
+            const expanded = card.classList.toggle('expanded');
+            if (text) text.hidden = !expanded;
+            btn.setAttribute('aria-expanded', String(expanded));
+            btn.setAttribute('aria-label', expanded ? 'Hide prompt' : 'Show prompt');
+        }
+
+        // Selecting a card loads its prompt into the editable box (in sync with the dropdown).
+        function selectPromptCard(id) {
+            const promptSelect = document.getElementById('promptSelect');
+            promptSelect.value = id;
+            handlePromptChange();
+        }
+
+        function markSelectedPromptCard(id) {
+            document.querySelectorAll('#promptLibrary .prompt-card').forEach(card => {
+                card.classList.toggle('selected', card.dataset.id === id);
+            });
         }
 
         function updateOllamaStatus(state) {
@@ -736,33 +819,27 @@
 
         function handlePromptChange() {
             const promptSelect = document.getElementById('promptSelect');
-            const customContainer = document.getElementById('customPromptContainer');
             const descriptionDiv = document.getElementById('promptDescription');
+            const activePrompt = document.getElementById('activePrompt');
             const selectedValue = promptSelect.value;
             if (selectedValue === 'custom') {
-                customContainer.classList.add('active');
-                descriptionDiv.textContent = 'Enter your own custom prompt for benchmarking.';
-                updatePromptPreview();
+                descriptionDiv.textContent = 'Custom prompt — type anything you want to benchmark below.';
+                activePrompt.value = '';
+                activePrompt.focus();
             } else {
-                customContainer.classList.remove('active');
                 const selectedPrompt = availablePrompts.find(p => p.id === selectedValue);
                 if (selectedPrompt) {
                     descriptionDiv.textContent = `${selectedPrompt.category} • ${selectedPrompt.type} — ${selectedPrompt.description}`;
-                    document.getElementById('promptPreviewText').textContent = selectedPrompt.prompt;
+                    activePrompt.value = selectedPrompt.prompt;
                 }
             }
-        }
-
-        function updatePromptPreview() {
-            const customInput = document.getElementById('customPromptInput');
-            const previewText = document.getElementById('promptPreviewText');
-            previewText.textContent = customInput.value.trim() || '(Enter a custom prompt above)';
+            markSelectedPromptCard(selectedValue);
         }
 
         function getPromptConfig() {
-            const selectedValue = document.getElementById('promptSelect').value;
-            if (selectedValue === 'custom') return { customPrompt: document.getElementById('customPromptInput').value.trim() };
-            return { promptId: selectedValue };
+            // The editable box is the single source of truth — base prompts are pre-filled
+            // there and may be edited, so always send its text as the prompt to run.
+            return { customPrompt: document.getElementById('activePrompt').value.trim() };
         }
 
         async function loadSystemSpecs() {
@@ -870,6 +947,52 @@
         function toggleIntelligence() {
             const section = document.getElementById('intelligenceSection');
             if (section) setIntelligenceCollapsed(!section.classList.contains('collapsed'));
+        }
+
+        // ---- Two-at-a-time response comparison (from the last run) ----
+        function renderResponseComparison() {
+            const section = document.getElementById('responseSection');
+            if (!section) return;
+            const hasResponses = lastRun.some(r => r && (r.response || !r.success));
+            if (!lastRun.length || !hasResponses) { section.hidden = true; return; }
+            section.hidden = false;
+
+            const promptText = (lastRun.find(r => r && r.prompt) || {}).prompt || '';
+            document.getElementById('responsePrompt').textContent = promptText || '(prompt unavailable)';
+
+            const left = document.getElementById('compareLeft');
+            const right = document.getElementById('compareRight');
+            const options = lastRun.map((r, i) =>
+                `<option value="${i}">${escapeHtml(r.model)}${r.success ? '' : ' — failed'}</option>`).join('');
+            const n = lastRun.length;
+            const clamp = (v, fallback) => {
+                const i = parseInt(v, 10);
+                return (Number.isInteger(i) && i >= 0 && i < n) ? String(i) : fallback;
+            };
+            const prevLeft = left.value, prevRight = right.value;
+            left.innerHTML = options;
+            right.innerHTML = options;
+            left.value = clamp(prevLeft, '0');
+            right.value = clamp(prevRight, String(n > 1 ? 1 : 0));
+            renderCompareSides();
+        }
+
+        function renderCompareSides() {
+            const left = document.getElementById('compareLeft');
+            const right = document.getElementById('compareRight');
+            fillResponseBox('responseLeft', lastRun[parseInt(left.value, 10)]);
+            fillResponseBox('responseRight', lastRun[parseInt(right.value, 10)]);
+        }
+
+        function fillResponseBox(boxId, result) {
+            const box = document.getElementById(boxId);
+            if (!box) return;
+            if (!result) { box.textContent = ''; return; }
+            if (!result.success) {
+                box.innerHTML = `<span class="response-empty">No response — run failed${result.error ? ': ' + escapeHtml(result.error) : '.'}</span>`;
+                return;
+            }
+            box.textContent = (result.response || '').trim() || '(empty response)';
         }
 
         function displayChart(results) {
@@ -1092,6 +1215,55 @@
                 y += ROW_H;
             });
 
+            // ---- Model responses (last pages, from the last run) ----
+            const responded = (lastRun || []).filter(r => r && (r.response || !r.success));
+            if (responded.length) {
+                doc.addPage(); y = MARGIN + 10;
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(INK[0], INK[1], INK[2]);
+                doc.text('Model responses', MARGIN, y); y += 18;
+
+                const promptText = (lastRun.find(r => r && r.prompt) || {}).prompt || '';
+                if (promptText) {
+                    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+                    doc.text('PROMPT', MARGIN, y); y += 13;
+                    doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(INK[0], INK[1], INK[2]);
+                    doc.splitTextToSize(promptText, CONTENT_W).forEach(line => {
+                        if (y > PAGE_H - 50) { doc.addPage(); y = MARGIN + 10; }
+                        doc.text(line, MARGIN, y); y += 13;
+                    });
+                    y += 10;
+                }
+
+                const MAX_CHARS = 6000;
+                responded.forEach(r => {
+                    if (y > PAGE_H - 80) { doc.addPage(); y = MARGIN + 10; }
+                    doc.setFillColor(TEAL_DK[0], TEAL_DK[1], TEAL_DK[2]);
+                    doc.rect(MARGIN, y, CONTENT_W, 20, 'F');
+                    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+                    doc.text(pdfClip(doc, r.model, CONTENT_W - 150), MARGIN + 8, y + 13);
+                    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+                    doc.text(r.success ? (r.tokensPerSecond.toFixed(2) + ' t/s · ' + r.totalTokens + ' tok') : 'Failed',
+                        MARGIN + CONTENT_W - 8, y + 13, { align: 'right' });
+                    y += 28;
+
+                    doc.setTextColor(INK[0], INK[1], INK[2]); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+                    let body = r.success ? (r.response || '').trim() : ('No response — run failed' + (r.error ? ': ' + r.error : '.'));
+                    if (!body) body = '(empty response)';
+                    let truncated = false;
+                    if (body.length > MAX_CHARS) { body = body.slice(0, MAX_CHARS); truncated = true; }
+                    doc.splitTextToSize(body, CONTENT_W).forEach(line => {
+                        if (y > PAGE_H - 46) { doc.addPage(); y = MARGIN + 10; }
+                        doc.text(line, MARGIN, y); y += 12.5;
+                    });
+                    if (truncated) {
+                        if (y > PAGE_H - 46) { doc.addPage(); y = MARGIN + 10; }
+                        doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
+                        doc.text('… response truncated for the report.', MARGIN, y); y += 14;
+                    }
+                    y += 14;
+                });
+            }
+
             // ---- Footer on every page ----
             const pages = doc.getNumberOfPages();
             for (let p = 1; p <= pages; p++) {
@@ -1168,7 +1340,7 @@
             const selectedModels = Array.from(document.querySelectorAll('.model-checkbox-input:checked')).map(cb => cb.value);
             if (selectedModels.length === 0) { showBenchmarkAlert('Please select at least one installed model to benchmark.', 'error'); return; }
             const promptConfig = getPromptConfig();
-            if ('customPrompt' in promptConfig && promptConfig.customPrompt === '') { showBenchmarkAlert('Please enter a custom prompt or select a predefined test.', 'error'); return; }
+            if ('customPrompt' in promptConfig && promptConfig.customPrompt === '') { showBenchmarkAlert('Please enter or select a prompt to run.', 'error'); return; }
 
             const runBtn = document.getElementById('runBenchmarkBtn');
             runBtn.disabled = true; runBtn.textContent = 'Running…';
@@ -1189,11 +1361,13 @@
                     throw new Error(errorMessage);
                 }
                 const result = await response.json();
+                lastRun = Array.isArray(result.results) ? result.results : [];
                 progressFill.style.width = '100%';
                 progressStatus.textContent = 'Benchmark completed.';
                 const successCount = result.results.filter(r => r.success).length;
                 const failedCount = result.results.length - successCount;
                 showBenchmarkAlert(`Benchmark completed — ${successCount} successful${failedCount > 0 ? `, ${failedCount} failed` : ''}.`, 'success');
+                renderResponseComparison();
                 setTimeout(() => { loadResults(); loadSystemSpecs(); }, 800);
             } catch (error) {
                 progressFill.style.width = '100%';
