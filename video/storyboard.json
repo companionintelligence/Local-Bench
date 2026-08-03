@@ -34,7 +34,7 @@
       "kind": "screen",
       "chapter": "setup",
       "seconds": 6.5,
-      "caption": "One page. No account, no cloud, no setup.",
+      "caption": "One page. No account, no telemetry, no cloud.",
       "narration": "One page. It counts the curated catalog, what you have installed, and your fastest run.",
       "shots": [
         {
@@ -114,7 +114,7 @@
       "chapter": "benchmark",
       "seconds": 6,
       "caption": "Fourteen prompts, grouped by the work they test.",
-      "narration": "Fourteen prompts: generation, code, reasoning, extraction, planning. Expand one to read it first.",
+      "narration": "Fourteen prompts: coding, reasoning, analysis, creative, operations. Expand one to read it first.",
       "shots": [
         {
           "id": "prompt-library",
@@ -236,9 +236,9 @@
       "id": "close",
       "kind": "outro",
       "seconds": 5,
-      "cta": "Own your AI.",
+      "cta": "UnCloud your life.",
       "url": "ci.computer",
-      "narration": "Local Bench. Companion Intelligence. Own your AI."
+      "narration": "Local Bench. Companion Intelligence. UnCloud your life."
     }
   ]
 }
