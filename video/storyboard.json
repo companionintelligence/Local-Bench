@@ -114,7 +114,7 @@
       "chapter": "benchmark",
       "seconds": 6,
       "caption": "Fourteen prompts, grouped by the work they test.",
-      "narration": "Fourteen prompts: coding, reasoning, analysis, creative, operations. Expand one to read it first.",
+      "narration": "Fourteen prompts, from coding to operations. Expand one to read it first.",
       "shots": [
         {
           "id": "prompt-library",
@@ -174,7 +174,7 @@
       "chapter": "compare",
       "seconds": 7,
       "caption": "Ranked by intelligence index, before you download.",
-      "narration": "Every catalog model, ranked by the Artificial Analysis intelligence index, with size and context window.",
+      "narration": "Every catalog model, ranked by the Artificial Analysis intelligence index.",
       "shots": [
         {
           "id": "intelligence-index",
@@ -223,7 +223,7 @@
       "seconds": 6,
       "title": "Local Bench",
       "caption": "Measured on your hardware, stored on your disk.",
-      "narration": "Forty-two curated models, fourteen prompts, results kept in a local SQLite file.",
+      "narration": "Forty-two models, fourteen prompts, results in a local SQLite file.",
       "items": [
         { "label": "Curated catalog", "value": "42 models" },
         { "label": "Benchmark prompts", "value": "14" },
