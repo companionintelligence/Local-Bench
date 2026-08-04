@@ -70,7 +70,34 @@
             "waitFor": "#modelCatalogSummary .note.warn",
             "before": [
               {
-                "eval": "() => { document.getElementById('modelCatalogSummary').scrollIntoView({ block: 'center' }); }"
+                "eval": "(() => { document.getElementById('modelCatalogSummary').scrollIntoView({ block: 'center' }); })()"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "models-installed",
+      "kind": "screen",
+      "chapter": "setup",
+      "seconds": 7,
+      "caption": "Start the daemon. What you have pulled unlocks.",
+      "narration": "Start Ollama and the catalog comes alive. Anything you have already pulled becomes selectable.",
+      "shots": [
+        {
+          "id": "models-installed",
+          "url": "localhost:3000",
+          "alt": "The model picker with Ollama connected: the installed catalog models sort to the top with enabled checkboxes, above the disabled cards for models not pulled locally.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelList .model-opt:not(.disabled) input:not([disabled])",
+            "before": [
+              {
+                "eval": "(() => { document.getElementById('modelList').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
               }
             ],
             "settle": 450
@@ -100,7 +127,7 @@
                 "waitFor": "#promptLibrary .prompt-card"
               },
               {
-                "eval": "() => { document.getElementById('activePrompt').scrollIntoView({ block: 'center' }); }"
+                "eval": "(() => { document.getElementById('activePrompt').scrollIntoView({ block: 'center' }); })()"
               }
             ],
             "settle": 450
@@ -133,7 +160,7 @@
                 "waitFor": "#promptLibrary .prompt-card.expanded .prompt-card-text"
               },
               {
-                "eval": "() => { document.getElementById('promptLibrary').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); }"
+                "eval": "(() => { document.getElementById('promptLibrary').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
               }
             ],
             "settle": 450
@@ -160,10 +187,109 @@
             "waitFor": "#runBenchmarkBtn",
             "before": [
               {
-                "eval": "() => { document.getElementById('runBenchmarkBtn').closest('.btn-row').scrollIntoView({ block: 'center' }); }"
+                "eval": "(() => { document.getElementById('runBenchmarkBtn').closest('.btn-row').scrollIntoView({ block: 'center' }); })()"
               }
             ],
             "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "benchmark-complete",
+      "kind": "screen",
+      "chapter": "benchmark",
+      "seconds": 6.5,
+      "caption": "The run finishes on your machine. Nothing metered.",
+      "narration": "The run finishes on your own machine. Nothing was uploaded, and nothing was metered.",
+      "shots": [
+        {
+          "id": "benchmark-complete",
+          "url": "localhost:3000",
+          "alt": "A completed benchmark: the success notice counting the successful runs, above the model cards for the two models that were selected and measured.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelList .model-opt:not(.disabled) input:not([disabled])",
+            "before": [
+              {
+                "click": "button:has-text('Select all installed')"
+              },
+              {
+                "click": "#runBenchmarkBtn"
+              },
+              {
+                "waitFor": "#benchmarkAlert .note.brand"
+              },
+              {
+                "eval": "(() => { document.getElementById('benchmarkAlert').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
+              }
+            ],
+            "settle": 600
+          }
+        }
+      ]
+    },
+    {
+      "id": "system-specs",
+      "kind": "screen",
+      "chapter": "benchmark",
+      "seconds": 7,
+      "caption": "Every run records the hardware behind it.",
+      "narration": "Every run records the hardware it ran on: processor, memory, and graphics.",
+      "shots": [
+        {
+          "id": "system-specs",
+          "url": "localhost:3000",
+          "alt": "The System specifications card: server name, CPU model, core and thread counts, memory, operating system, motherboard and detected GPU.",
+          "motion": "drift-down",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#systemSpecs .specs-grid",
+            "before": [
+              {
+                "eval": "(() => { document.getElementById('systemSpecs').closest('.section').scrollIntoView({ block: 'end' }); window.scrollBy(0, 28); })()"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "response-compare",
+      "kind": "screen",
+      "chapter": "compare",
+      "seconds": 7,
+      "caption": "Speed is half the question. Read the answers.",
+      "narration": "Speed is only half the question. Read what each model actually wrote, side by side.",
+      "shots": [
+        {
+          "id": "response-compare",
+          "url": "localhost:3000",
+          "alt": "The Response comparison section: the prompt that was sent, then two model pickers with each model's full answer in its own pane, side by side.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelList .model-opt:not(.disabled) input:not([disabled])",
+            "before": [
+              {
+                "click": "button:has-text('Select all installed')"
+              },
+              {
+                "click": "#runBenchmarkBtn"
+              },
+              {
+                "waitFor": "#responseSection:not([hidden]) .response-box"
+              },
+              {
+                "eval": "(() => { document.getElementById('responseSection').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
+              }
+            ],
+            "settle": 600
           }
         }
       ]
@@ -187,7 +313,7 @@
             "waitFor": "#intelligenceList .iq-row",
             "before": [
               {
-                "eval": "() => { document.getElementById('intelligenceSection').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); }"
+                "eval": "(() => { document.getElementById('intelligenceSection').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
               }
             ],
             "settle": 450
@@ -225,11 +351,26 @@
       "caption": "Measured on your hardware, stored on your disk.",
       "narration": "Forty-two models, fourteen prompts, results in a local SQLite file.",
       "items": [
-        { "label": "Curated catalog", "value": "42 models" },
-        { "label": "Benchmark prompts", "value": "14" },
-        { "label": "Results store", "value": "local SQLite" },
-        { "label": "Export", "value": "CSV + PDF" },
-        { "label": "Accounts", "value": "none" }
+        {
+          "label": "Curated catalog",
+          "value": "42 models"
+        },
+        {
+          "label": "Benchmark prompts",
+          "value": "14"
+        },
+        {
+          "label": "Results store",
+          "value": "local SQLite"
+        },
+        {
+          "label": "Export",
+          "value": "CSV + PDF"
+        },
+        {
+          "label": "Accounts",
+          "value": "none"
+        }
       ]
     },
     {

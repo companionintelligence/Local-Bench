@@ -23,6 +23,20 @@ jobs:
   video:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # ONE CAPTURE RUN CANNOT FILM BOTH STAGE STATES. video-kit calls
+      # capture.config.mjs's `onContext` once per viewport context, BEFORE the
+      # per-shot loop, so its route mocks are global to the whole run. Local Bench
+      # therefore captures twice, once per LB_CAPTURE_SCENARIO.
+      #
+      # ⚠ Every shot id in video/storyboard.json must appear in exactly ONE of
+      #   these lists. A shot in neither is never captured, and video-kit silently
+      #   substitutes a branded "capture pending" slate for a missing PNG — the
+      #   build still goes green. That silent substitution is the failure this
+      #   split exists to prevent, so the "Verify shot coverage" step below fails
+      #   the run the moment these lists and the storyboard drift apart.
+      SHOTS_FIRST_RUN: dashboard-hero,model-catalog,prompt-picker,prompt-library,run-controls,intelligence-index,docs
+      SHOTS_BENCHMARKED: models-installed,benchmark-complete,system-specs,response-compare
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +53,20 @@ jobs:
         working-directory: video
         run: npm install
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # @companionintelligence/video-kit is published out of CI-Common and the
+          # package is PRIVATE. secrets.GITHUB_TOKEN is scoped to THIS repository and
+          # has no read access to it, so this step 403s with
+          #   "permission_denied: read_package"
+          # until one of these is done ONCE (both are outside this repo):
+          #   a) CI-Common → Packages → video-kit → Package settings → Manage Actions
+          #      access → add companionintelligence/Local-Bench with Read. This makes
+          #      the secrets.GITHUB_TOKEN fallback below start working. Web UI only —
+          #      there is no REST endpoint for it.
+          #   b) or add a CI_PACKAGES_READ_TOKEN org secret holding a PAT with
+          #      read:packages, which this expression prefers when it exists.
+          # This is fleet-wide, not a Local-Bench bug: every repo with a video/
+          # project fails at this same step for the same reason.
+          NODE_AUTH_TOKEN: ${{ secrets.CI_PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install Chromium
         working-directory: video
@@ -72,13 +99,76 @@ jobs:
       # A benchmark run writes rows into benchmark_data.db (src/database.ts:22) and
       # the dashboard renders them. The runner's DB is empty on a fresh checkout —
       # assert that, so a stray committed DB can never silently change the shots.
+      #
+      # This still holds after the scenario split: `benchmarked` mocks /api/models,
+      # /api/system-specs and POST /api/run-benchmark at the route layer and
+      # deliberately leaves /api/results alone, so this gate stays orthogonal.
       - name: Assert empty results (capture determinism)
         run: |
           test "$(curl -fsS http://localhost:3000/api/results)" = "[]"
 
-      - name: Capture
+      # The `benchmarked` scenario replays video/fixtures/run-fixture.json. Fail loudly
+      # if it stops parsing, or if it names a model the picker no longer offers — that
+      # would film a run of models the curated catalog does not contain.
+      - name: Verify capture fixture
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            const { SUPPORTED_OLLAMA_MODELS } = require('./dist/benchmark.js');
+            const fixture = JSON.parse(fs.readFileSync('video/fixtures/run-fixture.json', 'utf8'));
+            const catalog = new Set(SUPPORTED_OLLAMA_MODELS.map(m => m.name));
+            const named = [...new Set([
+              ...fixture.installedModels,
+              ...fixture.run.results.map(r => r.model),
+            ])];
+            const stray = named.filter(n => !catalog.has(n));
+            if (stray.length) {
+              console.error('  x fixture names models absent from SUPPORTED_OLLAMA_MODELS: ' + stray.join(', '));
+              process.exit(1);
+            }
+            console.log('  fixture ok: ' + named.join(', '));
+          "
+
+      # The guard that makes the two-pass split safe: if a shot is declared in the
+      # storyboard but listed in neither pass it is never captured, and video-kit
+      # renders it as a branded slate without failing. Catch that here instead.
+      - name: Verify shot coverage
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            const sb = JSON.parse(fs.readFileSync('video/storyboard.json', 'utf8'));
+            const declared = sb.scenes.flatMap(s => (s.shots ?? []).map(x => x.id));
+            const listed = [
+              ...process.env.SHOTS_FIRST_RUN.split(','),
+              ...process.env.SHOTS_BENCHMARKED.split(','),
+            ].map(s => s.trim()).filter(Boolean);
+            const errs = [];
+            const uncaptured = declared.filter(id => !listed.includes(id));
+            const twice = listed.filter((id, i) => listed.indexOf(id) !== i);
+            const unknown = listed.filter(id => !declared.includes(id));
+            if (uncaptured.length) errs.push('declared in storyboard.json but captured by neither pass, so it would silently render as a slate: ' + uncaptured.join(', '));
+            if (twice.length) errs.push('listed in both passes, so the second pass overwrites the first: ' + twice.join(', '));
+            if (unknown.length) errs.push('listed in a pass but not declared in storyboard.json: ' + unknown.join(', '));
+            if (errs.length) { errs.forEach(e => console.error('  x ' + e)); process.exit(1); }
+            console.log('  shot coverage ok: ' + declared.length + ' shot(s) across 2 scenario passes');
+          "
+
+      # Pass 1 — the FTUE. No Ollama daemon: every model card disabled, the amber
+      # "Ollama unavailable" pill, the welcome banner, empty results.
+      - name: Capture (first-run)
         working-directory: video
-        run: npm run capture
+        env:
+          LB_CAPTURE_SCENARIO: first-run
+        run: npm run capture -- --only "$SHOTS_FIRST_RUN"
+
+      # Pass 2 — the working state. Ollama connected with the fixture's catalog
+      # models installed, and a completed run: the success notice, the response
+      # comparison and the system specifications card.
+      - name: Capture (benchmarked)
+        working-directory: video
+        env:
+          LB_CAPTURE_SCENARIO: benchmarked
+        run: npm run capture -- --only "$SHOTS_BENCHMARKED"
 
       # Shots are byte-stable, so a diff here means the UI genuinely changed.
       # Surface it as a PR rather than silently committing to the branch.

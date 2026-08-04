@@ -1,0 +1,59 @@
+{
+  "_README": [
+    "Recorded stage state for the 'benchmarked' capture scenario. Every value here was",
+    "produced by Local Bench itself against a real Ollama daemon on real hardware --",
+    "nothing in this file is hand-written. See video/README.md.",
+    "",
+    "DELIBERATELY ABSENT: tokensPerSecond, totalTokens and durationSeconds.",
+    "The machine available when this was recorded was under heavy unrelated load, so the",
+    "throughput it measured (single-digit tokens/sec for a 1B model on an M2 Max) is not a",
+    "valid measurement of anything and must never appear in a product video. The scenes",
+    "this fixture drives -- installed models, run completion, response comparison, system",
+    "specs -- display no timing at all, so they are honest without it.",
+    "",
+    "To add the results table, statistics and throughput chart scenes, re-record on an idle",
+    "machine, add the timing fields plus a 'results' array for /api/results, and add those",
+    "shots to the LB_CAPTURE_SCENARIO=benchmarked --only list in .github/workflows/video.yml."
+  ],
+  "recordedAt": "2026-08-04",
+  "recordedWith": {
+    "ollama": "0.32.5",
+    "note": "Models pulled with `ollama pull`; both are entries in SUPPORTED_OLLAMA_MODELS (src/benchmark.ts)."
+  },
+  "installedModels": [
+    "gemma3:1b",
+    "qwen3-vl:4b"
+  ],
+  "systemSpecs": {
+    "serverName": "MacBook-Pro-2.local",
+    "cpuModel": "M2 Max",
+    "cpuCores": 12,
+    "cpuThreads": 12,
+    "totalMemoryGB": 96,
+    "osType": "darwin",
+    "osVersion": "macOS",
+    "motherboard": "Apple Inc. Mac14,6",
+    "gpus": [
+      {
+        "model": "Apple M2 Max"
+      }
+    ]
+  },
+  "run": {
+    "success": true,
+    "results": [
+      {
+        "model": "gemma3:1b",
+        "success": true,
+        "prompt": "Write a short paragraph about artificial intelligence.",
+        "response": "Artificial Intelligence (AI), at its core, is the development of intelligent systems capable – and increasingly prevalent – to mimic human intelligence. This range encompasses everything from simple algorithms that automate tasks like data entry to complex models learning and adapting through vast datasets like deep neural networks. While still in relative infancy for some areas like image creation or natural language translation, AI has rapidly permeated our world impacting businesses globally by streamlining processes, automating responses, enhancing diagnostics, and opening doors to innovation with its potential transformative power.  "
+      },
+      {
+        "model": "qwen3-vl:4b",
+        "success": true,
+        "prompt": "Write a short paragraph about artificial intelligence.",
+        "response": "Artificial intelligence (AI) refers to computer systems designed to perform tasks that typically require human intelligence, such as learning from data, recognizing patterns, making decisions, and solving problems. By analyzing vast amounts of information—whether text, images, or sensor inputs—these systems can identify insights, automate complex processes, and make predictions, significantly enhancing capabilities in fields like healthcare (diagnostics), transportation (autonomous vehicles), finance (fraud detection), and scientific research. While AI excels at specific tasks it's trained for, it remains a powerful tool that requires human guidance, ethical oversight, and continuous development to maximize its benefits while navigating challenges like bias and job displacement."
+      }
+    ]
+  }
+}
