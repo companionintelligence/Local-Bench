@@ -1,0 +1,125 @@
+# Product video — capture the real UI, then render both cuts.
+#
+# Deliberately NO `push` trigger. CI-Local-CICD's policy gates always-on
+# workflows (its README: "CI-Marketplace was fully gated and billing again
+# within a day"), so this runs on demand and once a week.
+name: Product video
+
+on:
+  workflow_dispatch:
+    inputs:
+      render:
+        description: Also render the MP4s (slower)
+        type: boolean
+        default: true
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+concurrency:
+  group: video-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          # Without a scope, setup-node writes a bare `registry=` line into ~/.npmrc
+          # and routes EVERY package at GitHub Packages, so public deps (playwright)
+          # 404 on install. Scope it so only @companionintelligence goes there.
+          scope: "@companionintelligence"
+
+      - name: Install video project
+        working-directory: video
+        run: npm install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Chromium
+        working-directory: video
+        run: npx playwright install --with-deps chromium
+
+      # Local Bench serves its static UI from its own Node server (src/server.ts).
+      # There is no Playwright `webServer` to reuse: the repo's only Playwright
+      # config, tests/container/playwright.config.ts, deliberately has none — it
+      # targets an already-running container on :8080.
+      #
+      # This MUST run from the repo root: STATIC_ROOT = process.cwd()
+      # (src/server.ts:16), so index.html and assets/ only resolve from there.
+      #
+      # No Ollama is installed on the runner, so /api/models answers 503 with the
+      # curated catalog. That is exactly the first-run state the storyboard films,
+      # and video/capture.config.mjs pins it so a laptop capture matches.
+      - name: Start app
+        env:
+          PORT: "3000"
+        run: |
+          npm ci
+          npm run build
+          nohup node dist/server.js > /tmp/local-bench-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://localhost:3000/ > /dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS http://localhost:3000/ > /dev/null
+
+      # A benchmark run writes rows into benchmark_data.db (src/database.ts:22) and
+      # the dashboard renders them. The runner's DB is empty on a fresh checkout —
+      # assert that, so a stray committed DB can never silently change the shots.
+      - name: Assert empty results (capture determinism)
+        run: |
+          test "$(curl -fsS http://localhost:3000/api/results)" = "[]"
+
+      - name: Capture
+        working-directory: video
+        run: npm run capture
+
+      # Shots are byte-stable, so a diff here means the UI genuinely changed.
+      # Surface it as a PR rather than silently committing to the branch.
+      - name: Detect UI drift
+        id: drift
+        working-directory: video
+        run: |
+          if [ -n "$(git status --porcelain assets/shots)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git status --porcelain assets/shots
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and check
+        working-directory: video
+        run: npm run build && npm run check
+
+      - name: Render
+        if: ${{ github.event_name == 'schedule' || inputs.render }}
+        working-directory: video
+        run: npm run render
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-local-bench-video
+          path: |
+            video/out/*.mp4
+            video/assets/shots/*.png
+          if-no-files-found: warn
+
+      - name: Open a PR when the UI drifted
+        if: steps.drift.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/video-shot-refresh
+          title: "chore(video): refresh Local Bench product-video captures"
+          body: |
+            The scheduled capture produced different screenshots, which means the UI changed.
+
+            Review the image diff, update `video/storyboard.json` captions if a screen's meaning
+            changed, then merge to re-render the product video from the current UI.
+          add-paths: video/assets/shots
+          commit-message: "chore(video): refresh product-video captures"

@@ -1,0 +1,11 @@
+# rendered videos — regenerate with `ci-video render`
+out/
+
+# generated compositions — regenerate with `ci-video build`.
+# build/<fmt>/assets is a symlink to ../../assets, which must not be committed.
+build/
+
+# playwright auth state
+.auth/
+
+node_modules/

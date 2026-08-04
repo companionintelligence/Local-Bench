@@ -1,0 +1,244 @@
+{
+  "$schema": "https://raw.githubusercontent.com/companionintelligence/CI-Common/main/packages/video-kit/schema/storyboard.schema.json",
+  "app": {
+    "id": "ci-local-bench",
+    "name": "Local Bench",
+    "repo": "companionintelligence/Local-Bench",
+    "marketplaceId": "ci-local-bench",
+    "website": "ci.computer"
+  },
+  "meta": {
+    "fps": 30,
+    "transitionSeconds": 0.5
+  },
+  "chapters": {
+    "setup": "First run",
+    "benchmark": "Run a benchmark",
+    "compare": "Compare models"
+  },
+  "media": {
+    "music": null,
+    "musicVolume": 0.14
+  },
+  "scenes": [
+    {
+      "id": "open",
+      "kind": "intro",
+      "seconds": 5,
+      "title": "Local Bench",
+      "caption": "Benchmark the models you actually run.",
+      "narration": "This is Local Bench, from Companion Intelligence."
+    },
+    {
+      "id": "first-run",
+      "kind": "screen",
+      "chapter": "setup",
+      "seconds": 6.5,
+      "caption": "One page. No account, no telemetry, no cloud.",
+      "narration": "One page. It counts the curated catalog, what you have installed, and your fastest run.",
+      "shots": [
+        {
+          "id": "dashboard-hero",
+          "url": "localhost:3000",
+          "alt": "Local Bench dashboard: hero copy and four summary cards for catalog size, installed models, top intelligence score and fastest measured model.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelCatalogSummary .tag",
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "needs-ollama",
+      "kind": "screen",
+      "chapter": "setup",
+      "seconds": 7,
+      "caption": "Forty-two curated models. Ollama serves them.",
+      "narration": "Local Bench talks to Ollama. With no daemon running, it shows the catalog and says so.",
+      "shots": [
+        {
+          "id": "model-catalog",
+          "url": "localhost:3000",
+          "alt": "The model picker: curated Ollama models as selectable cards, the installed and curated counts, and the notice that Ollama is not reachable.",
+          "motion": "drift-down",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelCatalogSummary .note.warn",
+            "before": [
+              {
+                "eval": "() => { document.getElementById('modelCatalogSummary').scrollIntoView({ block: 'center' }); }"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "pick-a-prompt",
+      "kind": "screen",
+      "chapter": "benchmark",
+      "seconds": 6.5,
+      "caption": "Pick a prompt. Edit it. That exact text runs.",
+      "narration": "Pick a prompt. The box below it is editable, and that exact text is what runs.",
+      "shots": [
+        {
+          "id": "prompt-picker",
+          "url": "localhost:3000",
+          "alt": "The test prompt dropdown, its category and description, and the editable textarea holding the prompt that will be sent to the model.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#activePrompt",
+            "before": [
+              {
+                "waitFor": "#promptLibrary .prompt-card"
+              },
+              {
+                "eval": "() => { document.getElementById('activePrompt').scrollIntoView({ block: 'center' }); }"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "browse-prompts",
+      "kind": "screen",
+      "chapter": "benchmark",
+      "seconds": 6,
+      "caption": "Fourteen prompts, grouped by the work they test.",
+      "narration": "Fourteen prompts, from coding to operations. Expand one to read it first.",
+      "shots": [
+        {
+          "id": "prompt-library",
+          "url": "localhost:3000",
+          "alt": "The prompt library grid with the first card expanded to reveal the full prompt text that will be sent to the model.",
+          "motion": "drift-down",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#promptLibrary .prompt-card",
+            "before": [
+              {
+                "click": "#promptLibrary .prompt-card:first-child .prompt-card-toggle"
+              },
+              {
+                "waitFor": "#promptLibrary .prompt-card.expanded .prompt-card-text"
+              },
+              {
+                "eval": "() => { document.getElementById('promptLibrary').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); }"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "run-it",
+      "kind": "screen",
+      "chapter": "benchmark",
+      "seconds": 6.5,
+      "caption": "Select what you have installed, then run.",
+      "narration": "Select what you have installed and run it. Models you have not pulled stay disabled.",
+      "shots": [
+        {
+          "id": "run-controls",
+          "url": "localhost:3000",
+          "alt": "The run controls — Run benchmark, Select all installed, Clear selection — sitting under the prompt library, above the progress meter.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#runBenchmarkBtn",
+            "before": [
+              {
+                "eval": "() => { document.getElementById('runBenchmarkBtn').closest('.btn-row').scrollIntoView({ block: 'center' }); }"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "model-intelligence",
+      "kind": "screen",
+      "chapter": "compare",
+      "seconds": 7,
+      "caption": "Ranked by intelligence index, before you download.",
+      "narration": "Every catalog model, ranked by the Artificial Analysis intelligence index.",
+      "shots": [
+        {
+          "id": "intelligence-index",
+          "url": "localhost:3000",
+          "alt": "The Model intelligence table: catalog models ranked by intelligence index, each with a bar, its size, context window and input types.",
+          "motion": "drift-down",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#intelligenceList .iq-row",
+            "before": [
+              {
+                "eval": "() => { document.getElementById('intelligenceSection').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); }"
+              }
+            ],
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "read-the-docs",
+      "kind": "screen",
+      "chapter": "compare",
+      "seconds": 6,
+      "caption": "The docs ship inside the app.",
+      "narration": "The docs ship inside the app: what the numbers mean, how to budget agents.",
+      "shots": [
+        {
+          "id": "docs",
+          "url": "localhost:3000/#docs",
+          "alt": "The in-app documentation view: topic sidebar on the left, the Local Bench overview topic on the right.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/#docs",
+            "waitUntil": "networkidle",
+            "waitFor": "#topic-overview h1",
+            "settle": 450
+          }
+        }
+      ]
+    },
+    {
+      "id": "recap",
+      "kind": "feature",
+      "seconds": 6,
+      "title": "Local Bench",
+      "caption": "Measured on your hardware, stored on your disk.",
+      "narration": "Forty-two models, fourteen prompts, results in a local SQLite file.",
+      "items": [
+        { "label": "Curated catalog", "value": "42 models" },
+        { "label": "Benchmark prompts", "value": "14" },
+        { "label": "Results store", "value": "local SQLite" },
+        { "label": "Export", "value": "CSV + PDF" },
+        { "label": "Accounts", "value": "none" }
+      ]
+    },
+    {
+      "id": "close",
+      "kind": "outro",
+      "seconds": 5,
+      "cta": "UnCloud your life.",
+      "url": "ci.computer",
+      "narration": "Local Bench. Companion Intelligence. UnCloud your life."
+    }
+  ]
+}
