@@ -5,6 +5,12 @@
 Generates a **16:9 desktop cut** and a **9:16 mobile cut** of Local Bench's FTUE and major
 screens, from this repo's own UI. Both are produced from [`storyboard.json`](storyboard.json).
 
+**Videos are built locally, on demand.** No GitHub Actions workflow builds them, nothing is
+scheduled, and the MP4s are not stored anywhere — not committed, not uploaded as artifacts, not
+attached to releases. A cut is a build output: render one when you need it, use it, delete it.
+The inputs that make that cheap — `storyboard.json`, the shots and the audio — are committed, so
+you never have to reconstruct the film from scratch.
+
 ## Quick start
 
 ```bash
@@ -35,7 +41,7 @@ has none — it points at an already-running container on :8080.
 
 Ollama is **not** required, and the capture deliberately does not run it.
 [`capture.config.mjs`](capture.config.mjs) pins `/api/models` at the route layer so a laptop with
-`ollama serve` running produces the same PNGs as the CI runner, which has none. The determinism
+`ollama serve` running produces the same PNGs as a machine with no daemon at all. The determinism
 hazards are enumerated in that file's header comment — read it before you capture.
 
 ### Two scenarios, two passes
@@ -55,24 +61,47 @@ LB_CAPTURE_SCENARIO=first-run   npm run capture -- --only dashboard-hero,model-c
 LB_CAPTURE_SCENARIO=benchmarked npm run capture -- --only models-installed,benchmark-complete,system-specs,response-compare
 ```
 
-> ⚠ **Every shot id in `storyboard.json` must appear in exactly one of those two lists.** A shot
-> in neither is never captured, and video-kit silently substitutes a branded "capture pending"
-> slate for the missing PNG — the build still goes green. The workflow's **Verify shot coverage**
-> step fails the run if the lists and the storyboard ever drift apart, so when you add a shot, add
-> it to `SHOTS_FIRST_RUN` or `SHOTS_BENCHMARKED` in
-> [`.github/workflows/video.yml`](../.github/workflows/video.yml) in the same PR.
+> ⚠ **Every shot id in `storyboard.json` must appear in exactly one of those two commands.** A
+> shot in neither is never captured, and video-kit silently substitutes a branded "capture
+> pending" slate for the missing PNG — the build still goes green. Those two `--only` lists above
+> are now the only place the split is written down, so when you add a shot, add it to the matching
+> list in this README in the same PR, and check both lists against the storyboard before you
+> capture:
+>
+> ```bash
+> node -e "
+>   const sb = require('./storyboard.json');
+>   const declared = sb.scenes.flatMap(s => (s.shots ?? []).map(x => x.id));
+>   console.log(declared.join('\n'));
+> "
+> ```
 
 ### The fixture
 
 [`fixtures/run-fixture.json`](fixtures/run-fixture.json) holds the recorded stage state the
 `benchmarked` pass replays: which catalog models were installed, the real system specifications,
 and each model's real generated response. It was produced by Local Bench itself against a real
-Ollama daemon — nothing in it is hand-written, and the workflow asserts every model it names is
-still in `SUPPORTED_OLLAMA_MODELS` (`src/benchmark.ts`).
+Ollama daemon — nothing in it is hand-written. Every model it names must still be in
+`SUPPORTED_OLLAMA_MODELS` (`src/benchmark.ts`); a model the picker no longer offers would film a
+run of a catalog the product does not have, so check it before a `benchmarked` capture:
+
+```bash
+cd .. && npm run build && node -e "
+  const { SUPPORTED_OLLAMA_MODELS } = require('./dist/benchmark.js');
+  const fixture = require('./video/fixtures/run-fixture.json');
+  const catalog = new Set(SUPPORTED_OLLAMA_MODELS.map(m => m.name));
+  const named = [...new Set([...fixture.installedModels, ...fixture.run.results.map(r => r.model)])];
+  const stray = named.filter(n => !catalog.has(n));
+  console.log(stray.length ? 'x stray: ' + stray.join(', ') : 'fixture ok: ' + named.join(', '));
+"
+```
 
 We mock routes rather than seeding the database: `benchmark_data.db` and `benchmark_results.csv`
-are gitignored, so a seeded DB is not committable and could never reproduce on a runner. Mocking
-also keeps the workflow's `curl /api/results == []` gate orthogonal and still valid.
+are gitignored, so a seeded DB is not committable and could never reproduce on another machine.
+Delete `benchmark_data.db` before you capture — `curl -fsS localhost:3000/api/results` must answer
+`[]`, or a stray local run bleeds into the shots. Mocking keeps that check orthogonal: the
+`benchmarked` scenario pins `/api/models`, `/api/system-specs` and `POST /api/run-benchmark` and
+deliberately leaves `/api/results` alone.
 
 **The fixture carries no throughput numbers**, and no scene displays one. See the `_README` block
 at the top of the file for why, and for what to re-record if you want to add the results table,
@@ -99,7 +128,7 @@ captions, narration, and which screens appear. The **capture spec for each shot 
 file**, so the script and the screenshots cannot drift apart.
 
 Adding a beat is: add a scene, add its shot's `capture` block, add the shot id to the matching
-scenario list in [`.github/workflows/video.yml`](../.github/workflows/video.yml), then
+scenario list in [Two scenarios, two passes](#two-scenarios-two-passes) above, then
 `LB_CAPTURE_SCENARIO=<scenario> npm run capture -- --only <id>` and `npm run build && npm run render`.
 **Open the resulting PNG and look at it** — a shot that reached the wrong scroll position, an empty
 state or an unrendered chart still writes a file, and every downstream step stays green.
@@ -112,9 +141,14 @@ picked up automatically from `assets/audio/<sceneId>.mp3`; regenerate it from th
 
 ## What is committed
 
-`assets/shots/*.png` and `assets/audio/*.mp3` **are** committed — they are the record of what the
-product looked like, and captures are byte-stable, so a diff in them means the UI genuinely
-changed. `out/` is not committed.
+`assets/shots/*.png` and `assets/audio/*.mp3` **are** committed. They are *inputs*, not output:
+they let anyone render a cut without booting the app and re-recording narration, and because
+captures are byte-stable, a diff in them means the UI genuinely changed and is reviewable as an
+image diff in the PR that moved it.
+
+`out/` and `build/` are not committed, and the rendered MP4s are not stored anywhere else either.
+Nothing re-captures the shots on a schedule any more — when you change a screen the video covers,
+re-run the matching capture pass yourself and commit the PNGs alongside the UI change.
 
 See [CI-Engineering `projects/product-video-pipeline/`](https://github.com/companionintelligence/CI-Engineering/tree/main/projects/product-video-pipeline)
 for the full contract.
