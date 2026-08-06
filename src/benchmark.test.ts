@@ -277,6 +277,23 @@ describe('Benchmark Module', () => {
       });
     });
 
+    it('should name every curated model with a reference Ollama can actually resolve', () => {
+      // `minmax m2` shipped in this list for months: a misspelling of MiniMax M2 whose
+      // SPACE made it a reference `ollama pull` can never take, so the row could not be
+      // installed, matched against an installed model, or benchmarked — it existed only
+      // as rank #2 of the intelligence list under a name nobody can use. A name is a
+      // valid reference when it is [namespace/]model[:tag] over the characters a registry
+      // path allows; whitespace is the tell.
+      const REFERENCE = /^(?:[a-z0-9][a-z0-9._-]*\/)?[a-zA-Z0-9][a-zA-Z0-9._-]*(?::[a-zA-Z0-9][a-zA-Z0-9._-]*)?$/;
+      const bad = SUPPORTED_OLLAMA_MODELS.filter(m => !REFERENCE.test(m.name)).map(m => m.name);
+      expect(bad).toEqual([]);
+    });
+
+    it('should not list the same model twice', () => {
+      const names = SUPPORTED_OLLAMA_MODELS.map(m => m.name);
+      expect(names.length).toBe(new Set(names).size);
+    });
+
     it('should rate at least the flagship text models and leave vision-only models unrated', () => {
       const byName = new Map(SUPPORTED_OLLAMA_MODELS.map(m => [m.name, m]));
       expect(byName.get('gpt-oss:120b')?.intelligenceIndex).toBeGreaterThan(0);
