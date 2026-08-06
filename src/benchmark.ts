@@ -220,7 +220,12 @@ export const SUPPORTED_OLLAMA_MODELS: SupportedOllamaModel[] = [
   { name: 'qwen3-coder:480b', size: '290GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder', intelligenceIndex: 24 },
   { name: 'deepseek-v3.1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-v3.1', intelligenceIndex: 28 },
   { name: 'deepseek-r1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 27 },
-  { name: 'minmax m2', size: '968GB', contextWindow: '200K', inputs: ['Text'], family: 'minmax', intelligenceIndex: 44 }
+  // `minmax m2` was a misspelling of MiniMax M2, and the space made it a tag Ollama can
+  // never return — so the row could never match an installed model and existed only as
+  // rank #2 of the intelligence list, under a name no one can pull. Renamed to the real
+  // tag. The '968GB' size is NOT verified against anything and does not correspond to a
+  // known MiniMax-M2 quant; left as-is rather than replaced with a better-looking guess.
+  { name: 'minimax-m2:230b', size: '968GB', contextWindow: '200K', inputs: ['Text'], family: 'minimax-m2', intelligenceIndex: 44 }
 ];
 
 export const DEFAULT_MODELS: string[] = SUPPORTED_OLLAMA_MODELS.map(model => model.name);
