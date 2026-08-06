@@ -9,11 +9,11 @@ screens, from this repo's own UI. Both are produced from [`storyboard.json`](sto
 scheduled, and the MP4s are not stored anywhere — not committed, not uploaded as artifacts, not
 attached to releases. A cut is a build output: render one when you need it, use it, delete it.
 
-The **screenshots are build outputs too**, and are no longer committed either. Capturing them
-locally takes about a minute, and a committed screenshot that nothing refreshes goes on looking
-current long after the UI has moved — worse than having none. What stays committed is what is
-expensive or impossible to regenerate: `storyboard.json`, `capture.config.mjs`, the run fixture
-and the audio.
+The **screenshots are committed**, as of the fleet-wide policy of 2026-08-05. Only three of the
+twelve products have a stage that actually boots, so an ignored shot set means nobody but the
+stage's author can render the cut — eleven of twelve were rendering as "capture pending" slates.
+The staleness risk is handled the other way round: when you change a screen the video covers,
+re-run the matching capture pass and commit the new PNGs in the same PR.
 
 ## Quick start
 
@@ -169,14 +169,17 @@ picked up automatically from `assets/audio/<sceneId>.mp3`; regenerate it from th
 
 ## What is committed
 
-`storyboard.json`, `capture.config.mjs`, `fixtures/run-fixture.json` and `assets/audio/*.mp3`
-**are** committed. They are the *inputs* that are expensive or impossible to regenerate: the
-narration costs a synthesis run, and the fixture records a real Ollama session on real hardware.
+`storyboard.json`, `capture.config.mjs`, `fixtures/run-fixture.json`, `assets/audio/*.mp3` and
+`assets/shots/*.png` **are** committed. The first four are inputs that are expensive or impossible
+to regenerate — the narration costs a synthesis run, and the fixture records a real Ollama session
+on real hardware. The shots are committed because a checkout without them cannot render at all
+(`ci-video check` fails on missing shots by design, and the kit substitutes a "capture pending"
+slate), and most products in the fleet cannot re-stage themselves.
 
-`assets/shots/`, `out/` and `build/` are **not** committed — they are build outputs, and
+`out/` and `build/` are **not** committed — they are build outputs, and
 [`.gitignore`](.gitignore) ignores them. `./video/make.sh` regenerates the lot in about a minute.
 Nothing re-captures on a schedule: when you change a screen the video covers, re-run the matching
-capture pass yourself and **open the PNGs and look at them** before you render.
+capture pass yourself, **open the PNGs and look at them**, and commit them with the change.
 
 See [CI-Engineering `projects/product-video-pipeline/`](https://github.com/companionintelligence/CI-Engineering/tree/main/projects/product-video-pipeline)
 for the full contract.

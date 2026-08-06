@@ -98,7 +98,7 @@
             "waitFor": "#modelList .model-opt:not(.disabled) input:not([disabled])",
             "before": [
               {
-                "eval": "(() => { document.getElementById('modelList').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
+                "eval": "(() => { const bar = document.querySelector('.topbar').getBoundingClientRect().height; const label = document.getElementById('modelList').previousElementSibling; window.scrollTo(0, label.getBoundingClientRect().top + window.scrollY - bar - 14); })()"
               }
             ],
             "settle": 450
@@ -161,7 +161,7 @@
                 "waitFor": "#promptLibrary .prompt-card.expanded .prompt-card-text"
               },
               {
-                "eval": "(() => { document.getElementById('promptLibrary').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
+                "eval": "(() => { const bar = document.querySelector('.topbar').getBoundingClientRect().height; const label = document.getElementById('promptLibrary').previousElementSibling; window.scrollTo(0, label.getBoundingClientRect().top + window.scrollY - bar - 14); })()"
               }
             ],
             "settle": 450
@@ -290,7 +290,7 @@
                 "waitFor": "#responseSection:not([hidden]) .response-box"
               },
               {
-                "eval": "(() => { document.getElementById('responseSection').scrollIntoView({ block: 'start' }); window.scrollBy(0, -88); })()"
+                "eval": "(() => { const bar = document.querySelector('.topbar').getBoundingClientRect().height; const el = document.getElementById('responseSection'); window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - bar); })()"
               }
             ],
             "settle": 600
