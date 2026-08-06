@@ -17,33 +17,40 @@
 
 STAGE_PID=""
 
-# Shot lists, kept in step with storyboard.json. verify_shot_coverage below
-# fails if the two lists do not exactly cover it.
-SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-}"
-SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-}"
+# Which shots belong to which scenario. These used to live in the workflow's env
+# block; the workflow is gone, so they live here — and _verify_shot_coverage
+# below keeps them honest rather than trusting them, which is what the
+# workflow's own "Verify shot coverage" step did.
+SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog,prompt-picker,prompt-library,run-controls,intelligence-index,docs}"
+SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,benchmark-complete,system-specs,response-compare}"
 
-_load_shot_lists() {
-  # The workflow keeps these in its env block; read them from there so there is
-  # one source of truth rather than a copy that silently drifts.
-  local wf="$REPO_ROOT/.github/workflows/video.yml"
-  [ -n "$SHOTS_FIRST_RUN" ] || SHOTS_FIRST_RUN="$(
-    python3 -c "
-import yaml,sys
-d=yaml.safe_load(open('$wf'))
-env=list(d['jobs'].values())[0].get('env',{}) or {}
-print(env.get('SHOTS_FIRST_RUN',''))
-" )"
-  [ -n "$SHOTS_BENCHMARKED" ] || SHOTS_BENCHMARKED="$(
-    python3 -c "
-import yaml,sys
-d=yaml.safe_load(open('$wf'))
-env=list(d['jobs'].values())[0].get('env',{}) or {}
-print(env.get('SHOTS_BENCHMARKED',''))
-" )"
-  [ -n "$SHOTS_FIRST_RUN" ] && [ -n "$SHOTS_BENCHMARKED" ] || {
-    echo "could not read SHOTS_FIRST_RUN / SHOTS_BENCHMARKED from the workflow" >&2
-    return 1
-  }
+# Every shot in the storyboard must appear in exactly one list. Without this a
+# shot added to storyboard.json is simply never captured, and `ci-video check`
+# is what finally complains — a long way from the cause.
+_verify_shot_coverage() {
+  SHOTS_FIRST_RUN="$SHOTS_FIRST_RUN" SHOTS_BENCHMARKED="$SHOTS_BENCHMARKED" \
+  node -e '
+    const fs = require("node:fs");
+    const sb = JSON.parse(fs.readFileSync("video/storyboard.json", "utf8"));
+    const declared = sb.scenes.flatMap((s) => (s.shots ?? []).map((x) => x.id));
+    const listed = [
+      ...process.env.SHOTS_FIRST_RUN.split(","),
+      ...process.env.SHOTS_BENCHMARKED.split(","),
+    ].map((s) => s.trim()).filter(Boolean);
+
+    const errs = [];
+    const uncaptured = declared.filter((id) => !listed.includes(id));
+    const twice = listed.filter((id, i) => listed.indexOf(id) !== i);
+    const unknown = listed.filter((id) => !declared.includes(id));
+    if (uncaptured.length) errs.push("never captured: " + uncaptured.join(", "));
+    if (twice.length) errs.push("captured twice: " + twice.join(", "));
+    if (unknown.length) errs.push("not in the storyboard: " + unknown.join(", "));
+    if (errs.length) {
+      console.error("  x scenario shot lists do not cover storyboard.json\n    " + errs.join("\n    "));
+      process.exit(1);
+    }
+    console.log(`  shot coverage ok (${declared.length} shots across 2 scenarios)`);
+  ' || return 1
 }
 
 stage_up() {
@@ -53,7 +60,7 @@ stage_up() {
   export PORT="$STAGE_PORT"
   [ "$STAGE_PORT" = 3000 ] || echo "note: :3000 was busy, using :$STAGE_PORT"
 
-  _load_shot_lists
+  ( cd "$REPO_ROOT" && _verify_shot_coverage ) || return 1
 
   ( cd "$REPO_ROOT" && npm ci --silent && npm run build )
 
