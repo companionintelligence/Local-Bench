@@ -10,13 +10,17 @@ build/
 
 node_modules/
 
-# NOTE: captured screenshots are deliberately COMMITTED, not ignored. The
-# argument for ignoring them — that they are regenerable inputs and a stale
-# screenshot outlives the UI it shows — is sound in principle, but today only a
-# few repos have a working local stage recipe. Ignoring them here would mean a
-# fresh clone cannot render this video at all, and `ci-video check` fails on
-# missing shots by design. Revisit once `./video/make.sh --capture` works
-# everywhere.
+# Captured screenshots. These WERE deliberately committed (#38), with the note
+# that it should be revisited "once ./video/make.sh --capture works everywhere" —
+# the concern being that a fresh clone could not otherwise render the video at
+# all, since `ci-video check` fails on missing shots by design.
+#
+# That condition is now met for this repo: ./video/make.sh builds the app,
+# starts the server, captures both scenarios, checks and renders from a clean
+# checkout. So the original argument applies again — they are regenerable
+# inputs, and a committed screenshot that nothing refreshes goes on looking
+# current long after the UI has moved, which is worse than having none.
+assets/shots/
 
 # npm install writes this; the project has never had one and both make.sh and
 # the workflow use `npm install`, so committing it now would quietly change how
