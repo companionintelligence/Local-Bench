@@ -211,6 +211,13 @@ export const SUPPORTED_OLLAMA_MODELS: SupportedOllamaModel[] = [
   { name: 'llama3.1:70b', size: '43GB', contextWindow: '128K', inputs: ['Text'], family: 'llama3.1', intelligenceIndex: 16 },
   { name: 'gpt-oss:120b', size: '65GB', contextWindow: '128K', inputs: ['Text'], family: 'gpt-oss', intelligenceIndex: 33 },
   { name: 'llama4:16x17b', size: '67GB', contextWindow: '10M', inputs: ['Text', 'Image'], family: 'llama4', intelligenceIndex: 13 },
+  // KNOWN GAP — the two GLM-4.6 rows below are the last names in this table that do not
+  // resolve on registry.ollama.ai (checked 2026-08-06: library/glm-4.6, library/GLM-4.6
+  // and library/glm4.6 all 404 at every tag; the library carries glm4, glm-4.7-flash and
+  // glm-5.x instead, and TQ1_0/Q4_K_M are Unsloth GGUF quant names, not Ollama tags).
+  // They are rank 4 and rank 5 of the intelligence list, so they are on screen. Left in
+  // place rather than renamed: substituting a GLM-5.x row means sourcing a new
+  // Artificial Analysis score for it, and an unsourced score is worse than a stale name.
   { name: 'GLM-4.6:TQ1_0', size: '84GB', contextWindow: '198K', inputs: ['Text'], family: 'GLM-4.6', intelligenceIndex: 30 },
   { name: 'qwen3:235b', size: '142GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3', intelligenceIndex: 45 },
   { name: 'qwen3-vl:235b', size: '143GB', contextWindow: '256K', inputs: ['Text', 'Image'], family: 'qwen3-vl', intelligenceIndex: null },
@@ -220,12 +227,14 @@ export const SUPPORTED_OLLAMA_MODELS: SupportedOllamaModel[] = [
   { name: 'qwen3-coder:480b', size: '290GB', contextWindow: '256K', inputs: ['Text'], family: 'qwen3-coder', intelligenceIndex: 24 },
   { name: 'deepseek-v3.1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-v3.1', intelligenceIndex: 28 },
   { name: 'deepseek-r1:671b', size: '404GB', contextWindow: '160K', inputs: ['Text'], family: 'deepseek-r1', intelligenceIndex: 27 },
-  // `minmax m2` was a misspelling of MiniMax M2, and the space made it a tag Ollama can
-  // never return — so the row could never match an installed model and existed only as
-  // rank #2 of the intelligence list, under a name no one can pull. Renamed to the real
-  // tag. The '968GB' size is NOT verified against anything and does not correspond to a
-  // known MiniMax-M2 quant; left as-is rather than replaced with a better-looking guess.
-  { name: 'minimax-m2:230b', size: '968GB', contextWindow: '200K', inputs: ['Text'], family: 'minimax-m2', intelligenceIndex: 44 }
+  // Was `minmax m2` at 968GB: a misspelling of MiniMax M2, a name with a space in it
+  // (so never a tag Ollama could resolve), and a size that matches no quant of a 230B
+  // model. Verified against registry.ollama.ai on 2026-08-06: there is no
+  // `library/minimax-m2` at any tag — the only MiniMax M2 on the registry is this
+  // community publish, whose manifest layers total 56.4 GB. That is the same
+  // ollama.com decimal-GB convention every other `size` in this table uses (checked:
+  // all 39 remaining names resolve, and each size matches its manifest total).
+  { name: 'gabegoodhart/minimax-m2:230b', size: '56GB', contextWindow: '200K', inputs: ['Text'], family: 'minimax-m2', intelligenceIndex: 44 }
 ];
 
 export const DEFAULT_MODELS: string[] = SUPPORTED_OLLAMA_MODELS.map(model => model.name);

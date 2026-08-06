@@ -135,13 +135,31 @@ deliberately leaves `/api/results` alone.
 at the top of the file for why, and for what to re-record if you want to add the results table,
 statistics and throughput chart scenes.
 
+#### One re-record closes three separate audit findings
+
+Two screenshot audits have now filed these as three problems. They are one job — a single
+`benchmarked` recording on an **idle** machine with a neutral hostname, with `/api/results`
+captured as well as `/api/run-benchmark`:
+
+| Finding | What the re-record gives it |
+|---|---|
+| No throughput figure anywhere in a film whose whole claim is measurement | `tokensPerSecond` / `totalTokens` / `durationSeconds` on each result. The app-side plumbing already exists and already hides itself when they are absent (`fillCompareMeta`), so the number lands in the existing `response-compare` shot with no storyboard change. |
+| `system-specs` films the hostname `MacBook-Pro-2.local`, which reads as a dev laptop on a store page | `systemSpecs.serverName` comes from the recording host. Renaming it in the file by hand would make the fixture's own "nothing in this file is hand-written" false; recording on a box called `core-1` makes it true and neutral at once. |
+| `dashboard-hero` is an empty state — "INSTALLED LOCALLY 0", "FASTEST MEASURED —", and a "No benchmarks have run yet" banner as the largest element | Only a populated `/api/results` retires that banner and fills FASTEST MEASURED. Note that moving the shot to the `benchmarked` scenario **alone does not fix it**: that scenario deliberately leaves `/api/results` empty, so the banner and the dash both survive. Worth deciding at the same time whether the `first-run` scene should still be the film's first screen at all — it is doing exactly what its caption asks ("One page. No account, no telemetry, no cloud."), and the complaint is really about scene order, not about the frame. |
+
+Until that recording exists, none of the three has an honest fix. Do not invent a tok/s.
+
 ### Two traps, if you add a shot
 
-1. **`eval` must be an expression, not a bare arrow function.** The kit runs a `before` step's
-   `eval` through `page.evaluate(string)`, which evaluates the string *as an expression*. A
-   `"() => { … }"` string therefore just constructs a function and throws it away — it never runs,
-   silently, and the shot is captured at whatever scroll position it already had. Wrap it in an
-   IIFE: `"(() => { … })()"`. Every `eval` in `storyboard.json` uses that form.
+1. **`eval` used to need an IIFE — it no longer does, but the habit is still the safe one.**
+   `page.evaluate(string)` evaluates the string *as an expression*, so a bare `"() => { … }"`
+   merely constructed a function and threw it away: no error, no warning, and the shot captured
+   at whatever scroll position it already had. Every scrolled shot written that way across CI's
+   product videos was a silent no-op. The kit now wraps and invokes it (`evalSource` in
+   `video-kit/src/capture.mjs`, which evaluates first and calls the result only if it is a
+   function, so both forms work). Every `eval` in this `storyboard.json` is written
+   `"(() => { … })()"` anyway — it is unambiguous, and it does not depend on the kit version
+   whoever renders this happens to have on disk.
 2. **The clock is frozen, so no timer ever fires.** `context.clock.install()` replaces
    `requestAnimationFrame`/`setTimeout`/`setInterval` with paused fakes and the kit never resumes
    them. `runBenchmark`'s deferred `loadResults()`/`loadSystemSpecs()` refresh never happens (so no

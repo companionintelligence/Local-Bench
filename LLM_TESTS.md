@@ -51,4 +51,4 @@ edit the `intelligenceIndex` values there to override the scores.
 | qwen3-coder:480b | 290GB | 256K | Text | 24 |
 | deepseek-v3.1:671b | 404GB | 160K | Text | 28 |
 | deepseek-r1:671b | 404GB | 160K | Text | 27 |
-| minmax m2 | 968GB | 200K | Text | 44 |
+| gabegoodhart/minimax-m2:230b | 56GB | 200K | Text | 44 |
