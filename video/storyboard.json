@@ -14,7 +14,8 @@
   "chapters": {
     "setup": "First run",
     "benchmark": "Run a benchmark",
-    "compare": "Compare models"
+    "compare": "Compare models",
+    "docs": "Documentation"
   },
   "media": {
     "music": null,
@@ -33,13 +34,13 @@
       "id": "first-run",
       "kind": "screen",
       "chapter": "setup",
-      "seconds": 6.5,
+      "seconds": 7,
       "caption": "One page. No account, no telemetry, no cloud.",
-      "narration": "One page. It counts the curated catalog, what you have installed, and your fastest run.",
+      "narration": "One page. The curated catalog, what Ollama has installed, and its smartest model.",
       "shots": [
         {
           "id": "dashboard-hero",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "Local Bench dashboard: hero copy and four summary cards for catalog size, installed models, top intelligence score and fastest measured model.",
           "motion": "push-in",
           "capture": {
@@ -61,7 +62,7 @@
       "shots": [
         {
           "id": "model-catalog",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "The model picker: curated Ollama models as selectable cards, the installed and curated counts, and the notice that Ollama is not reachable.",
           "motion": "drift-down",
           "capture": {
@@ -88,7 +89,7 @@
       "shots": [
         {
           "id": "models-installed",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "The model picker with Ollama connected: the installed catalog models sort to the top with enabled checkboxes, above the disabled cards for models not pulled locally.",
           "motion": "push-in",
           "capture": {
@@ -115,7 +116,7 @@
       "shots": [
         {
           "id": "prompt-picker",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "The test prompt dropdown, its category and description, and the editable textarea holding the prompt that will be sent to the model.",
           "motion": "push-in",
           "capture": {
@@ -140,12 +141,12 @@
       "kind": "screen",
       "chapter": "benchmark",
       "seconds": 6,
-      "caption": "Fourteen prompts, grouped by the work they test.",
+      "caption": "Fourteen prompts, each tagged with the work it tests.",
       "narration": "Fourteen prompts, from coding to operations. Expand one to read it first.",
       "shots": [
         {
           "id": "prompt-library",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "The prompt library grid with the first card expanded to reveal the full prompt text that will be sent to the model.",
           "motion": "drift-down",
           "capture": {
@@ -178,14 +179,17 @@
       "shots": [
         {
           "id": "run-controls",
-          "url": "localhost:3000",
-          "alt": "The run controls — Run benchmark, Select all installed, Clear selection — sitting under the prompt library, above the progress meter.",
+          "url": "local-bench.local",
+          "alt": "The run controls — Run benchmark, Select all installed, Clear selection — sitting under the prompt library.",
           "motion": "push-in",
           "capture": {
             "path": "/",
             "waitUntil": "networkidle",
             "waitFor": "#runBenchmarkBtn",
             "before": [
+              {
+                "waitFor": "#modelList .model-opt"
+              },
               {
                 "eval": "(() => { document.getElementById('runBenchmarkBtn').closest('.btn-row').scrollIntoView({ block: 'center' }); })()"
               }
@@ -205,7 +209,7 @@
       "shots": [
         {
           "id": "benchmark-complete",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "A completed benchmark: the success notice counting the successful runs, above the model cards for the two models that were selected and measured.",
           "motion": "push-in",
           "capture": {
@@ -241,7 +245,7 @@
       "shots": [
         {
           "id": "system-specs",
-          "url": "localhost:3000",
+          "url": "local-bench.local",
           "alt": "The System specifications card: server name, CPU model, core and thread counts, memory, operating system, motherboard and detected GPU.",
           "motion": "drift-down",
           "capture": {
@@ -264,12 +268,12 @@
       "chapter": "compare",
       "seconds": 7,
       "caption": "Speed is half the question. Read the answers.",
-      "narration": "Speed is only half the question. Read what each model actually wrote, side by side.",
+      "narration": "Speed is only half the question. Read what each model actually wrote.",
       "shots": [
         {
           "id": "response-compare",
-          "url": "localhost:3000",
-          "alt": "The Response comparison section: the prompt that was sent, then two model pickers with each model's full answer in its own pane, side by side.",
+          "url": "local-bench.local",
+          "alt": "The Response comparison section: the prompt that was sent, then two model pickers with each model's full answer in its own pane.",
           "motion": "push-in",
           "capture": {
             "path": "/",
@@ -300,12 +304,12 @@
       "chapter": "compare",
       "seconds": 7,
       "caption": "Ranked by intelligence index, before you download.",
-      "narration": "Every catalog model, ranked by the Artificial Analysis intelligence index.",
+      "narration": "Thirty-one rated models, ranked by the Artificial Analysis intelligence index.",
       "shots": [
         {
           "id": "intelligence-index",
-          "url": "localhost:3000",
-          "alt": "The Model intelligence table: catalog models ranked by intelligence index, each with a bar, its size, context window and input types.",
+          "url": "local-bench.local",
+          "alt": "The Model intelligence table: the rated catalog models ranked by intelligence index, each with its score, size, context window and input types.",
           "motion": "drift-down",
           "capture": {
             "path": "/",
@@ -324,15 +328,15 @@
     {
       "id": "read-the-docs",
       "kind": "screen",
-      "chapter": "compare",
+      "chapter": "docs",
       "seconds": 6,
       "caption": "The docs ship inside the app.",
       "narration": "The docs ship inside the app: what the numbers mean, how to budget agents.",
       "shots": [
         {
           "id": "docs",
-          "url": "localhost:3000/#docs",
-          "alt": "The in-app documentation view: topic sidebar on the left, the Local Bench overview topic on the right.",
+          "url": "local-bench.local/#docs",
+          "alt": "The in-app documentation view: the topic list beside the Local Bench overview topic.",
           "motion": "push-in",
           "capture": {
             "path": "/#docs",

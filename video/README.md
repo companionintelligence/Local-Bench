@@ -79,14 +79,14 @@ hazards are enumerated in that file's header comment — read it before you capt
 | Scenario | What it films |
 |---|---|
 | `first-run` *(default)* | No Ollama daemon. Every model card disabled, the amber "Ollama unavailable" pill, the welcome banner, empty results. The honest FTUE. |
-| `benchmarked` | Ollama connected with the fixture's catalog models installed, and a completed run: the success notice, the response comparison, the system specifications card. |
+| `benchmarked` | Ollama connected with the fixture's catalog models installed, and a completed run: the run controls, the success notice, the response comparison, the system specifications card. |
 
 **One run cannot film both.** `video-kit` calls `onContext` once per viewport context, *before*
 the per-shot loop, so its route mocks are global to the whole run. So capture twice:
 
 ```bash
-LB_CAPTURE_SCENARIO=first-run   npm run capture -- --only dashboard-hero,model-catalog,prompt-picker,prompt-library,run-controls,intelligence-index,docs
-LB_CAPTURE_SCENARIO=benchmarked npm run capture -- --only models-installed,benchmark-complete,system-specs,response-compare
+LB_CAPTURE_SCENARIO=first-run   npm run capture -- --only dashboard-hero,model-catalog,prompt-picker,prompt-library,intelligence-index,docs
+LB_CAPTURE_SCENARIO=benchmarked npm run capture -- --only models-installed,run-controls,benchmark-complete,system-specs,response-compare
 ```
 
 > ⚠ **Every shot id in `storyboard.json` must appear in exactly one of those two commands.** A
@@ -169,14 +169,14 @@ picked up automatically from `assets/audio/<sceneId>.mp3`; regenerate it from th
 
 ## What is committed
 
-`assets/shots/*.png` and `assets/audio/*.mp3` **are** committed. They are *inputs*, not output:
-they let anyone render a cut without booting the app and re-recording narration, and because
-captures are byte-stable, a diff in them means the UI genuinely changed and is reviewable as an
-image diff in the PR that moved it.
+`storyboard.json`, `capture.config.mjs`, `fixtures/run-fixture.json` and `assets/audio/*.mp3`
+**are** committed. They are the *inputs* that are expensive or impossible to regenerate: the
+narration costs a synthesis run, and the fixture records a real Ollama session on real hardware.
 
-`out/` and `build/` are not committed, and the rendered MP4s are not stored anywhere else either.
-Nothing re-captures the shots on a schedule any more — when you change a screen the video covers,
-re-run the matching capture pass yourself and commit the PNGs alongside the UI change.
+`assets/shots/`, `out/` and `build/` are **not** committed — they are build outputs, and
+[`.gitignore`](.gitignore) ignores them. `./video/make.sh` regenerates the lot in about a minute.
+Nothing re-captures on a schedule: when you change a screen the video covers, re-run the matching
+capture pass yourself and **open the PNGs and look at them** before you render.
 
 See [CI-Engineering `projects/product-video-pipeline/`](https://github.com/companionintelligence/CI-Engineering/tree/main/projects/product-video-pipeline)
 for the full contract.

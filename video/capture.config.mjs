@@ -34,9 +34,16 @@ import { fileURLToPath } from "node:url";
  *                          results. This is the honest FTUE and was the only state
  *                          the stage could ever reach before.
  *   benchmarked          — Ollama connected with two catalog models installed, and
- *                          a completed run. Reaches the run controls, the progress
- *                          meter at 100%, the response comparison and the system
- *                          specifications card.
+ *                          a completed run. Reaches the run controls with the
+ *                          daemon connected, the completion notice, the response
+ *                          comparison and the system specifications card.
+ *
+ *                          No shot films the progress meter, and none can. It is
+ *                          display:none outside a run (index.html:369-370), and
+ *                          #progressContainer (index.html:563) sits below the
+ *                          whole 42-card model grid and the prompt library —
+ *                          nowhere near #benchmarkAlert (index.html:537), which
+ *                          is the anchor the completion shot scrolls to.
  *
  * ONE RUN CANNOT FILM BOTH. `src/capture.mjs` calls `onContext` once per viewport
  * context, *before* the per-shot loop, so route mocks are global to the whole run.
