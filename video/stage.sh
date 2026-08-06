@@ -21,8 +21,14 @@ STAGE_PID=""
 # block; the workflow is gone, so they live here — and _verify_shot_coverage
 # below keeps them honest rather than trusting them, which is what the
 # workflow's own "Verify shot coverage" step did.
-SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog,prompt-picker,prompt-library,run-controls,intelligence-index,docs}"
-SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,benchmark-complete,system-specs,response-compare}"
+# `run-controls` belongs to the BENCHMARKED pass, not first-run. The topbar is
+# `position: sticky` (index.html:123-124), so its Ollama pill is in every scrolled
+# desktop frame — and in first-run that pill reads "Ollama unavailable" while the
+# caption says "Select what you have installed, then run." Filming it with the
+# daemon connected also stops the cut from re-locking the catalog three scenes
+# after `models-installed` unlocked it.
+SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog,prompt-picker,prompt-library,intelligence-index,docs}"
+SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,run-controls,benchmark-complete,system-specs,response-compare}"
 
 # Every shot in the storyboard must appear in exactly one list. Without this a
 # shot added to storyboard.json is simply never captured, and `ci-video check`
