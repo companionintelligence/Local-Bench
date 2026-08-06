@@ -9,7 +9,8 @@
   },
   "meta": {
     "fps": 30,
-    "transitionSeconds": 0.5
+    "transitionSeconds": 0.5,
+    "pacing": "fit"
   },
   "chapters": {
     "setup": "First run",
