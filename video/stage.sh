@@ -95,10 +95,10 @@ stage_up() {
 # out waiting for results that were never mocked in. The variable is the state.
 capture_all() {
   echo "  pass 1/2 — first-run shots (empty app)"
-  LB_CAPTURE_SCENARIO=first-run npm run capture -- --only "$SHOTS_FIRST_RUN"
+  LB_CAPTURE_SCENARIO=first-run kit capture --only "$SHOTS_FIRST_RUN"
 
   echo "  pass 2/2 — benchmarked shots (fixture-backed routes)"
-  LB_CAPTURE_SCENARIO=benchmarked npm run capture -- --only "$SHOTS_BENCHMARKED"
+  LB_CAPTURE_SCENARIO=benchmarked kit capture --only "$SHOTS_BENCHMARKED"
 }
 
 stage_down() {
