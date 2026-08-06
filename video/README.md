@@ -8,14 +8,39 @@ screens, from this repo's own UI. Both are produced from [`storyboard.json`](sto
 **Videos are built locally, on demand.** No GitHub Actions workflow builds them, nothing is
 scheduled, and the MP4s are not stored anywhere — not committed, not uploaded as artifacts, not
 attached to releases. A cut is a build output: render one when you need it, use it, delete it.
-The inputs that make that cheap — `storyboard.json`, the shots and the audio — are committed, so
-you never have to reconstruct the film from scratch.
+
+The **screenshots are build outputs too**, and are no longer committed either. Capturing them
+locally takes about a minute, and a committed screenshot that nothing refreshes goes on looking
+current long after the UI has moved — worse than having none. What stays committed is what is
+expensive or impossible to regenerate: `storyboard.json`, `capture.config.mjs`, the run fixture
+and the audio.
 
 ## Quick start
 
+One command does the whole thing — builds the app, starts the server, captures **both**
+scenarios, checks the composition, renders both cuts, and stops the server again:
+
+```bash
+./video/make.sh
+```
+
+Needs `node` and `ffmpeg` (`brew install ffmpeg`). Chromium is installed on the first run and
+cached afterwards.
+
+```bash
+./video/make.sh --no-render          # capture + check only, much faster
+./video/make.sh --only <shot-id>     # re-shoot a single shot
+```
+
+`make.sh` picks a free port instead of assuming `:3000` is available and points the capture at
+whatever it picked via `APP_URL` — a developer machine is not a clean CI runner. It also keeps the
+empty-results assertion described below, so a first-run shot cannot quietly film a dirty server.
+
+### Running the steps by hand
+
 ```bash
 npm install
-npx playwright install --with-deps chromium
+npx playwright install chromium
 npm run doctor        # verify node / ffmpeg / playwright / hyperframes / fonts
 
 # with the app's stage running (see below):
@@ -24,6 +49,9 @@ npm run build         # storyboard.json -> build/{landscape,portrait}/index.html
 npm run check         # HyperFrames gate: lint, runtime, layout, motion, contrast
 npm run render        # -> out/ci-local-bench-landscape.mp4 and out/ci-local-bench-portrait.mp4
 ```
+
+A bare `npm run capture` films the **first-run** scenario only — see [Two scenarios, two
+passes](#two-scenarios-two-passes) below. `make.sh` runs both passes for you.
 
 ## The stage
 
