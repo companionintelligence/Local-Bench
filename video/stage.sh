@@ -21,14 +21,27 @@ STAGE_PID=""
 # block; the workflow is gone, so they live here — and _verify_shot_coverage
 # below keeps them honest rather than trusting them, which is what the
 # workflow's own "Verify shot coverage" step did.
-# `run-controls` belongs to the BENCHMARKED pass, not first-run. The topbar is
-# `position: sticky` (index.html:123-124), so its Ollama pill is in every scrolled
-# desktop frame — and in first-run that pill reads "Ollama unavailable" while the
-# caption says "Select what you have installed, then run." Filming it with the
-# daemon connected also stops the cut from re-locking the catalog three scenes
-# after `models-installed` unlocked it.
-SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog,prompt-picker,prompt-library,intelligence-index,docs}"
-SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,run-controls,benchmark-complete,system-specs,response-compare}"
+# WHICH SCENARIO A SHOT BELONGS TO IS A CONTINUITY DECISION, NOT A TECHNICAL ONE.
+#
+# The topbar is `position: sticky`, so its Ollama pill is in EVERY scrolled desktop
+# frame. That makes the scenario lists the thing that decides whether the film says
+# "Ollama connected" or "Ollama unavailable" at any given second — and the film
+# tells a story about that: no daemon, then the daemon starts, then everything
+# works. Once `models-installed` turns the pill green it must stay green.
+#
+# It did not. `run-controls` was moved here for exactly this reason, and the same
+# reasoning was never applied to the other four. In scene order the pill read
+# unavailable, unavailable, CONNECTED, unavailable, unavailable, CONNECTED,
+# connected, connected, connected, UNAVAILABLE, unavailable — four state flips in
+# 78 seconds, with a full-width amber "Ollama is currently unavailable" banner
+# reappearing one scene after the narration said "Start Ollama and the catalog
+# comes alive".
+#
+# Only the two scenes whose narration is ABOUT having no daemon stay in first-run.
+# Everything from `models-installed` onward films with the daemon connected, whether
+# or not that shot's subject depends on Ollama.
+SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog}"
+SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,prompt-picker,prompt-library,run-controls,benchmark-complete,system-specs,response-compare,intelligence-index,docs}"
 
 # Every shot in the storyboard must appear in exactly one list. Without this a
 # shot added to storyboard.json is simply never captured, and `ci-video check`
