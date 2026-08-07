@@ -59,12 +59,73 @@ _verify_shot_coverage() {
   ' || return 1
 }
 
+# Prove the export above actually took, rather than trusting it — the same reason
+# _verify_shot_coverage exists. A leaked catalog does not fail a capture: every
+# shot still renders, `kit check` still passes, and the only trace is a model
+# count in a PNG that nobody diffs by eye.
+#
+# The invariant asserted is "no entry came from a local daemon", NOT a hard-coded
+# 42. Adding a model to SUPPORTED_OLLAMA_MODELS is a legitimate change that should
+# not fail the stage; a stray card from the capturing machine never is. The counts
+# are echoed so the honest numbers are visible in the run log — 42 curated / 11
+# unrated today, and the 11 is what the intelligence footnote must read.
+#
+# `curl -sS`, NOT `-fsS` like the /api/results check above: with no daemon
+# reachable /api/models answers 503 by design (src/server.ts takes its
+# catalog-fallback branch), and -f would discard that body and fail the stage on
+# the very state it is here to confirm. The 503 IS the healthy answer.
+_verify_catalog_is_machine_independent() {
+  curl -sS "$STAGE_URL/api/models" | node -e '
+    let raw = "";
+    process.stdin.on("data", (c) => (raw += c));
+    process.stdin.on("end", () => {
+      let catalog;
+      try {
+        catalog = JSON.parse(raw);
+      } catch {
+        console.error(`  x /api/models did not return JSON: ${raw.slice(0, 200) || "(empty)"}`);
+        process.exit(1);
+      }
+      const strays = catalog.filter((m) => m.source !== "catalog");
+      if (strays.length) {
+        console.error(
+          `  x /api/models served ${strays.length} model(s) pulled on THIS machine:\n` +
+          `      ${strays.map((m) => m.name).join(", ")}\n` +
+          `    The stage reached an Ollama daemon despite OLLAMA_API_URL pointing at a\n` +
+          `    closed port. Capturing now would bake this machine into the shots.`,
+        );
+        process.exit(1);
+      }
+      const unrated = catalog.filter((m) => typeof m.intelligenceIndex !== "number").length;
+      console.log(`  catalog ok (${catalog.length} curated, ${unrated} unrated — the intelligence footnote must read ${unrated})`);
+    });
+  ' || return 1
+}
+
 stage_up() {
   STAGE_PORT="$(pick_port 3000)"
   STAGE_URL="http://localhost:$STAGE_PORT"
   export APP_URL="$STAGE_URL"
   export PORT="$STAGE_PORT"
   [ "$STAGE_PORT" = 3000 ] || echo "note: :3000 was busy, using :$STAGE_PORT"
+
+  # The stage must not be able to see an Ollama daemon. `/api/models` appends a
+  # card for every locally pulled tag that is not in SUPPORTED_OLLAMA_MODELS
+  # (getOllamaModelCatalog's installedOnly branch), so a server that can reach a
+  # daemon serves a catalog shaped by whoever happens to be capturing — which is
+  # how shots reading "25 model(s) are not individually rated" on one laptop and
+  # "24" on another got committed. The honest number is 11.
+  #
+  # :9 is discard. Nothing listens, the connect fails immediately rather than
+  # hanging, and the handler takes its 503 catalog-fallback branch — exactly the
+  # no-daemon state the first-run shots are supposed to film.
+  #
+  # NOT overridable, deliberately: an env var a developer can set is the same
+  # per-operator workaround this replaces. capture.config.mjs filters the strays
+  # out independently, so this is the second lock — but it is the one that also
+  # keeps the raw server honest for anything reading it directly (--keep-up, a
+  # curl, the assertions below).
+  export OLLAMA_API_URL="http://127.0.0.1:9"
 
   ( cd "$REPO_ROOT" && _verify_shot_coverage ) || return 1
 
@@ -88,6 +149,8 @@ stage_up() {
     echo "expected no results for the first-run shots, got: ${results:0:120}" >&2
     return 1
   }
+
+  _verify_catalog_is_machine_independent || return 1
 
   echo "stage up at $STAGE_URL (no results yet)"
 }

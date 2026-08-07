@@ -76,13 +76,38 @@ import { fileURLToPath } from "node:url";
  * Everything below is either pinned here or is a known, documented residual.
  *
  * PINNED HERE
- *   • Ollama presence. `/api/models` returns 200 + real `installed` flags when a
+ *   • Ollama presence — the status code, the `installed` flags, AND catalog
+ *     membership. `/api/models` returns 200 + real `installed` flags when a
  *     daemon answers and 503 + the curated-catalog fallback when it does not
  *     (src/server.ts, `getOllamaModelCatalog`). That flips the status pill, the
  *     "N installed" count, the summary cards, whether the model cards are
  *     disabled, and whether the amber "Ollama is currently unavailable" note
- *     exists at all. A CI runner has no Ollama; a developer's laptop usually
- *     does. `onContext` pins the route per scenario so both produce the same PNG.
+ *     exists at all. A CI runner has no Ollama; a developer's laptop usually does.
+ *
+ *     ⚠ Membership is the third of those and it used to be missing — this comment
+ *     asserted a machine-independent PNG while the mock proxied `route.fetch()`
+ *     straight to the live server. `getOllamaModelCatalog` appends an entry for
+ *     every tag Ollama reports that is NOT in SUPPORTED_OLLAMA_MODELS
+ *     (`installedOnlyEntries`, src/benchmark.ts), so the body carried whatever the
+ *     capturing machine happened to have pulled. It cost us committed shots twice:
+ *
+ *       – The intelligence footnote counts unrated models across the WHOLE body
+ *         (`renderIntelligenceCatalog`, index.html:935+966), so it read 25 on one
+ *         laptop and 24 on another. The machine-independent value is 11: 42
+ *         curated entries minus the 31 carrying an `intelligenceIndex`.
+ *       – The leaked tiles rendered a state the product cannot produce. Those
+ *         entries exist ONLY because Ollama reported them installed — `installed`
+ *         is hard-coded true — and the flag rewrite below then set it back to
+ *         false, so 13 tiles filmed a "Not installed" pill on a disabled card
+ *         that no real server could ever emit.
+ *
+ *     Two independent locks now hold it, either sufficient on its own:
+ *       1. the route mock drops every `source: 'installed'` entry (see below), so
+ *          the pin holds however the stage was started — including `kit capture`
+ *          pointed at an APP_URL this repo never launched;
+ *       2. video/stage.sh starts the server against a closed OLLAMA_API_URL, so
+ *          the stage cannot reach a daemon at all, and asserts the served body
+ *          really is Ollama-free before a single shot is taken.
  *   • Theme. `index.html` picks the colorway pre-paint from
  *     `localStorage['lb-theme']`, falling back to `prefers-color-scheme`
  *     (index.html:12-19). `addInitScript` writes 'dark' before that IIFE runs,
@@ -146,6 +171,33 @@ if (!SCENARIOS.includes(scenario)) {
 const fixture = JSON.parse(fs.readFileSync(path.join(here, "fixtures", "run-fixture.json"), "utf8"));
 
 /**
+ * Keep only the rows that came from SUPPORTED_OLLAMA_MODELS, dropping the
+ * `installedOnlyEntries` that `getOllamaModelCatalog` appends for every locally
+ * pulled tag it does not recognise (src/benchmark.ts). Those rows are the one
+ * part of the body that varies with the capturing machine.
+ *
+ * Filtering rather than hand-writing a catalog is deliberate: the surviving rows
+ * are still the server's own, so this cannot drift from SUPPORTED_OLLAMA_MODELS
+ * the way a copied list would. `supported` is the redundant twin of `source` here
+ * — either would do; `source` says what we actually mean.
+ */
+const curatedOnly = (entries) => {
+  const curated = entries.filter((m) => m.source === "catalog");
+  if (entries.length && !curated.length) {
+    // Every row was filtered out, which means `source` is gone or renamed rather
+    // than that the catalog is empty. Filming this would produce "No intelligence
+    // scores available" and an empty model grid — a green build and a wrong video.
+    const message =
+      `/api/models returned ${entries.length} entries and not one had source:"catalog". ` +
+      `getOllamaModelCatalog's response shape changed (src/benchmark.ts) — fix the ` +
+      `filter in video/capture.config.mjs before capturing.`;
+    console.error(`  x ${message}`);
+    throw new Error(message);
+  }
+  return curated;
+};
+
+/**
  * Reproduce `getOllamaModelCatalog`'s ordering (src/benchmark.ts:276-280) after
  * flipping `installed`, so the mocked body is byte-identical in shape to what a
  * real server with those models pulled would have returned.
@@ -181,28 +233,38 @@ export default {
     });
 
     // ── /api/models ──────────────────────────────────────────────────────────
-    // We never invent models: the body is always the server's OWN curated
-    // catalog, fetched live, so it cannot go stale against SUPPORTED_OLLAMA_MODELS.
-    // Only the `installed` flags and the status code are pinned.
+    // We never invent models: the body is always the server's OWN catalog,
+    // fetched live, so it cannot go stale against SUPPORTED_OLLAMA_MODELS. Three
+    // things are then pinned on top of what comes back:
     //
+    //   membership  → only `source: 'catalog'` entries survive, i.e. exactly the
+    //                 SUPPORTED_OLLAMA_MODELS rows. Whatever else the capturing
+    //                 machine has pulled is dropped, so the body is the same rows
+    //                 on every machine. See `curatedOnly` above.
     //   first-run   → 503 + installed:false everywhere. The client reads 503 as
     //                 "catalog fallback" (`loadAvailableModels`, `isCatalogFallback`),
     //                 which is exactly what a machine with no `ollama serve` shows.
     //   benchmarked → 200 + installed:true for the fixture's models, which really
     //                 were pulled on the machine the fixture was recorded on.
+    //
+    // Filtering first is also what keeps the `installed` rewrite honest. Applied
+    // to an `installedOnly` entry it produces a card that cannot exist — the entry
+    // is there only because Ollama reported the model installed. After the filter
+    // there are no such entries left to mislabel.
     const installed = new Set(fixture.installedModels);
     await context.route("**/api/models", async (route) => {
       const response = await route.fetch();
-      let catalog;
+      let body;
       try {
-        catalog = await response.json();
+        body = await response.json();
       } catch {
-        catalog = [];
+        body = [];
       }
-      if (!Array.isArray(catalog)) {
-        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(catalog) });
+      if (!Array.isArray(body)) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(body) });
         return;
       }
+      const catalog = curatedOnly(body);
       if (scenario === "first-run") {
         await route.fulfill({
           status: 503,
