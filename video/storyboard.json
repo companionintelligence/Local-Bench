@@ -38,7 +38,7 @@
       "chapter": "setup",
       "seconds": 7,
       "caption": "One page. No account, no telemetry, no cloud.",
-      "narration": "One page. The curated catalog, what Ollama has installed, and its smartest model.",
+      "narration": "One page, no account. The whole curated catalog, before you install anything.",
       "shots": [
         {
           "id": "dashboard-hero",
@@ -59,7 +59,7 @@
       "kind": "screen",
       "chapter": "setup",
       "seconds": 7,
-      "caption": "Forty-two curated models. Ollama serves them.",
+      "caption": "Forty-two curated models. No daemon yet, and it says so.",
       "narration": "Local Bench talks to Ollama. With no daemon running, it shows the catalog and says so.",
       "shots": [
         {
@@ -79,7 +79,8 @@
             "settle": 450
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "models-installed",
@@ -104,9 +105,24 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.03,
+              "y": 0.1,
+              "w": 0.66,
+              "h": 0.66
+            },
+            "portrait": {
+              "x": 0.0,
+              "y": 0.075,
+              "w": 0.738,
+              "h": 0.738
+            }
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "pick-a-prompt",
@@ -136,7 +152,8 @@
             "settle": 450
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "browse-prompts",
@@ -169,7 +186,8 @@
             "settle": 450
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "run-it",
@@ -199,7 +217,8 @@
             "settle": 450
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "benchmark-complete",
@@ -235,7 +254,8 @@
             "settle": 600
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "system-specs",
@@ -262,7 +282,8 @@
             "settle": 450
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "response-compare",
@@ -298,7 +319,8 @@
             "settle": 600
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "model-intelligence",
@@ -323,9 +345,16 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "x": 0.05,
+            "y": 0.06,
+            "w": 0.92,
+            "h": 0.92
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "read-the-docs",
@@ -333,21 +362,30 @@
       "chapter": "docs",
       "seconds": 6,
       "caption": "The docs ship inside the app.",
-      "narration": "The docs ship inside the app: what the numbers mean, how to budget agents.",
+      "narration": "The docs ship inside the app: what each number means, and how to budget agents.",
       "shots": [
         {
           "id": "docs",
           "url": "local-bench.local/#docs",
-          "alt": "The in-app documentation view: the topic list beside the Local Bench overview topic.",
+          "alt": "The in-app documentation view: the topic list beside the \"What it shows, and why\" topic, explaining what each measured number means.",
           "motion": "push-in",
           "capture": {
             "path": "/#docs",
             "waitUntil": "networkidle",
             "waitFor": "#topic-overview h1",
-            "settle": 450
+            "settle": 450,
+            "before": [
+              {
+                "click": "button.docs-tab[data-topic='what-it-shows']"
+              },
+              {
+                "waitFor": "#topic-what-it-shows:not([hidden]) p"
+              }
+            ]
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "recap",
@@ -371,7 +409,7 @@
         },
         {
           "label": "Export",
-          "value": "CSV + PDF"
+          "value": "PDF"
         },
         {
           "label": "Accounts",
@@ -386,7 +424,7 @@
       "seconds": 5,
       "cta": "UnCloud your life.",
       "url": "ci.computer",
-      "narration": "Local Bench. Companion Intelligence. UnCloud your life.",
+      "narration": "Local Bench, from Companion Intelligence. UnCloud your life.",
       "mark": "brand:logo.full"
     }
   ]
