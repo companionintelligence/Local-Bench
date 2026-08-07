@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local-Bench · Companion Intelligence</title>
-    <meta name="description" content="Local-Bench — a Companion Intelligence app for benchmarking local LLMs and comparing model intelligence.">
+    <title>Local Bench · Companion Intelligence</title>
+    <meta name="description" content="Local Bench — a Companion Intelligence app for benchmarking local LLMs and comparing model intelligence.">
     <link rel="icon" type="image/svg+xml" href="assets/ci-icon.svg">
     <meta name="color-scheme" content="light dark">
     <!-- Theme: apply the saved or system colour scheme before first paint (no flash). -->
@@ -39,9 +39,16 @@
             --surface-2: #f5fafc;
             --ink: #12212a;             /* primary text */
             --ink-2: #344b56;           /* soft text */
-            --muted: #617784;           /* muted text */
-            --muted-2: #8395a0;
-            --muted-soft: #90a0a9;      /* card <p> — ~30% lighter than --muted */
+            /* Measured on the four light surfaces (#fff, #f5fafc, #f3fafb, #e9f4f7).
+               The previous trio cleared AA on none of them: --muted 4.18, --muted-2
+               2.77, --muted-soft 2.56 at their worst. Darkened to the lightest
+               value that clears 4.5:1 on ALL four, so the hierarchy survives. */
+            --muted: #5c717d;           /* muted text — worst case 4.55 */
+            --muted-2: #627078;         /* worst case 4.57 */
+            --muted-soft: #657076;      /* card <p> — worst case 4.54 */
+            --surface-disabled: #eef3f5; /* de-emphasised card fill */
+            --iq-line: rgba(16,78,92,.30);
+            --iq-ink: #0f6f78;          /* 5.27 on --surface-disabled */
             --border: rgba(16,78,92,.14);
             --border-strong: rgba(16,78,92,.26);
             /* Accent / brand teal — the "muted" background colour behind white text */
@@ -76,8 +83,11 @@
             --ink: #e8f1f2;
             --ink-2: #b7cbcd;
             --muted: #93a9ab;
-            --muted-2: #6e868a;
+            --muted-2: #7e9397;         /* was #6e868a — 3.79 on the footer band */
             --muted-soft: #b3c3c4;      /* card <p> — ~30% lighter than dark --muted */
+            --surface-disabled: #08202b; /* de-emphasised card fill */
+            --iq-line: rgba(120,205,210,.35);
+            --iq-ink: #8fd3d8;          /* 9.97 on --surface-disabled */
             --installed-line: #5fd0d8;  /* brand light teal outline (dark) */
             --installed-text: #7fe0e6;  /* bright teal text, legible on dark cards */
             --border: rgba(120,205,210,.16);
@@ -260,7 +270,11 @@
         }
         code.cmd:hover { background: var(--surface); }
         code.cmd.copied { color: var(--success); border-color: var(--success); }
-        .note.warn code.cmd { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.4); color: #fff; }
+        /* Darken the chip instead of lightening it. `ollama serve` is the one
+           thing this banner asks the user to DO, and a white-on-white-tint chip
+           measured 3.47:1 against the amber — the least legible string in the
+           banner was the actionable one. Black at 30% takes it to 8.1:1. */
+        .note.warn code.cmd { background: rgba(0,0,0,.30); border-color: rgba(255,255,255,.45); color: #fff; }
         .note.warn code.cmd.copied { color: #fff; border-color: #fff; }
 
         /* ---- Tags / chips ---- */
@@ -317,7 +331,28 @@
             background: var(--surface); transition: border-color .12s ease, box-shadow .12s ease;
         }
         .model-opt:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
-        .model-opt.disabled { opacity: .6; cursor: not-allowed; }
+        /* Disabled cards are de-emphasised with explicit colours, NOT `opacity`.
+           Opacity fades the text toward the card fill, and every one of these
+           cards still carries the product's real content — model name, size,
+           context window, intelligence score. At the old `opacity: .6` the meta
+           line measured 3.27:1 and the IQ badge 2.83:1 against their own
+           backdrops, both below the 4.5:1 AA floor for text this size, and the
+           whole grid read as muddy on camera. Recolouring instead keeps the
+           "not pulled" signal (dimmer fill, softer border, the explicit
+           "Not installed" tag and the disabled checkbox) while every string
+           stays legible. */
+        .model-opt.disabled {
+            cursor: not-allowed;
+            background: var(--surface-disabled); border-color: var(--border);
+        }
+        .model-opt.disabled .name { color: var(--ink-2); }
+        .model-opt.disabled .meta { color: var(--muted); }
+        .model-opt.disabled .tag.muted { color: var(--muted); border-color: var(--border-strong); }
+        /* Outline rather than filled: white-on-faded-teal was the worst offender
+           in the grid, and an outline badge reads as inactive more plainly. */
+        .model-opt.disabled .iq {
+            background: transparent; border-color: var(--iq-line); color: var(--iq-ink);
+        }
         .model-opt input { position: absolute; top: 14px; right: 14px; width: 16px; height: 16px; accent-color: var(--brand); }
         .model-opt .name { font-weight: 700; font-size: .96rem; padding-right: 26px; word-break: break-word; }
         .model-opt .meta { margin-top: 6px; color: var(--muted); font-size: .82rem; }
@@ -409,7 +444,8 @@
             gap: 14px; align-items: center; padding: 11px 4px; border-top: 1px solid var(--border);
         }
         .iq-row:first-child { border-top: none; }
-        .iq-rank { font-variant-numeric: tabular-nums; color: var(--muted-2); font-weight: 700; font-size: .85rem; text-align: right; }
+        /* --muted-2 put the rank numbers at 4.25:1, just under the AA floor. */
+        .iq-rank { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 700; font-size: .85rem; text-align: right; }
         .iq-model { min-width: 0; }
         .iq-model .nm { font-weight: 700; font-size: .94rem; word-break: break-word; }
         .iq-model .sub { font-size: .78rem; color: var(--muted); margin-top: 2px; }
@@ -480,7 +516,12 @@
         /* ---- In-app docs (sidebar + content, one tab per topic) ---- */
         .docs { padding: 18px 0 60px; }
         .docs-layout {
-            display: flex; min-height: calc(100vh - 240px);
+            /* Was calc(100vh - 240px), which held the panel open to nearly a full
+               viewport no matter how short the topic was — the Overview topic left
+               roughly 40% of the card empty, and that is what the product video
+               filmed. 420px still gives the sidebar its full-height rail look; past
+               that the card sizes to its content. */
+            display: flex; min-height: 420px;
             border: 1px solid var(--border); border-radius: var(--radius);
             overflow: hidden; background: var(--surface); box-shadow: var(--shadow-sm);
         }
@@ -777,7 +818,7 @@
 
     <footer>
         <div class="wrap row">
-            <span>Local-Bench, a Companion Intelligence app for benchmarking local LLMs.</span>
+            <span>Local Bench, a Companion Intelligence app for benchmarking local LLMs.</span>
             <span class="footer-links">
                 <a href="https://ci.computer/" target="_blank" rel="noopener">Ecosystem</a>
                 <a href="https://discord.com/invite/yQp9hwpzAa" target="_blank" rel="noopener">Discord</a>
@@ -795,6 +836,7 @@
         let lastRun = [];
         let latestSpecs = null;
         let intelligenceAutoCollapsed = false;
+        let ollamaReachable = null;
         let intelligenceMeta = { source: 'Artificial Analysis Intelligence Index', url: 'https://artificialanalysis.ai/', asOf: '' };
 
         function escapeHtml(value) {
@@ -881,6 +923,10 @@
             if (state === 'connected') { dot.className = 'dot ok'; label.textContent = 'Ollama connected'; }
             else if (state === 'unavailable') { dot.className = 'dot warn'; label.textContent = 'Ollama unavailable'; }
             else { dot.className = 'dot'; label.textContent = 'Connecting…'; }
+            // Remembered so the empty state can tell the user the step that is
+            // actually available to them. See showEmptyState.
+            ollamaReachable = state === 'connected' ? true : state === 'unavailable' ? false : null;
+            if (typeof renderEmptyStateIfShown === 'function') renderEmptyStateIfShown();
         }
 
         // Click an inline command chip (e.g. `ollama serve`) to copy it to the clipboard.
@@ -1467,14 +1513,40 @@
         }
 
         function showError(message) {
-            document.getElementById('errorContainer').innerHTML = `<div class="note error"><strong>Error:</strong> ${escapeHtml(message)}</div>`;
+            const box = document.getElementById('errorContainer');
+            delete box.dataset.state;
+            box.innerHTML = `<div class="note error"><strong>Error:</strong> ${escapeHtml(message)}</div>`;
+        }
+        /* The welcome banner used to give one instruction regardless of state:
+           "select one or more installed models above". With no daemon running
+           there are no installed models and every card is disabled, so the
+           empty state told a first-run user to do the one thing the page would
+           not let them do. Branch on whether Ollama actually answered. */
+        function emptyStateHtml() {
+            if (ollamaReachable === false) {
+                return `<div class="note brand"><strong>Welcome to Local Bench.</strong> Nothing can run yet — Ollama is not answering. Start it with <code class="cmd" title="Click to copy">ollama serve</code>, then refresh. The curated catalog below is browsable in the meantime.</div>`;
+            }
+            return `<div class="note brand"><strong>Welcome to Local Bench.</strong> No benchmarks have run yet — select one or more installed models above, pick a prompt, and run a benchmark. Results, charts, and system specs appear here automatically.</div>`;
         }
         function showEmptyState() {
-            document.getElementById('errorContainer').innerHTML = `<div class="note brand"><strong>Welcome to Local-Bench.</strong> No benchmarks have run yet — select one or more installed models above, pick a prompt, and run a benchmark. Results, charts, and system specs appear here automatically.</div>`;
+            const box = document.getElementById('errorContainer');
+            box.dataset.state = 'empty';
+            box.innerHTML = emptyStateHtml();
             const exportBtn = document.getElementById('exportPdfBtn');
             if (exportBtn) exportBtn.hidden = true;
         }
-        function clearError() { document.getElementById('errorContainer').innerHTML = ''; }
+        /* /api/results and /api/models race; whichever resolves second must not
+           leave a banner describing the other one's stale state. */
+        function renderEmptyStateIfShown() {
+            const box = document.getElementById('errorContainer');
+            if (!box || box.dataset.state !== 'empty') return;
+            box.innerHTML = emptyStateHtml();
+        }
+        function clearError() {
+            const box = document.getElementById('errorContainer');
+            delete box.dataset.state;
+            box.innerHTML = '';
+        }
 
         async function loadAvailableModels() {
             try {
