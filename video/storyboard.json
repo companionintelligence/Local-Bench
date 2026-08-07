@@ -29,7 +29,8 @@
       "seconds": 5,
       "title": "Local Bench",
       "caption": "Benchmark the models you actually run.",
-      "narration": "This is Local Bench, from Companion Intelligence."
+      "narration": "This is Local Bench, from Companion Intelligence.",
+      "mark": "./assets/app-icon.png"
     },
     {
       "id": "first-run",
@@ -376,7 +377,8 @@
           "label": "Accounts",
           "value": "none"
         }
-      ]
+      ],
+      "reveal": "paced"
     },
     {
       "id": "close",
@@ -384,7 +386,8 @@
       "seconds": 5,
       "cta": "UnCloud your life.",
       "url": "ci.computer",
-      "narration": "Local Bench. Companion Intelligence. UnCloud your life."
+      "narration": "Local Bench. Companion Intelligence. UnCloud your life.",
+      "mark": "brand:logo.full"
     }
   ]
 }
