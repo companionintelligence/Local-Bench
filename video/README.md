@@ -214,3 +214,40 @@ indistinguishable from a real UI change in review.
 
 So the range is gone. Re-pin deliberately when you want the newer browser, and re-capture the whole
 shot set in the same commit.
+
+### Why the pin lives in `video/package.json`
+
+`@companionintelligence/video-kit` declares `playwright` as an **optional peer dependency**
+(`>=1.45`) precisely so each repo pins the build its own shots were shot on. The kit then resolves
+it with `createRequire(video/package.json).resolve("playwright")` — from **this** directory, not
+from the kit's own. A divergence between this pin and anything else in the repo is a decision, not
+an oversight to be tidied away.
+
+`tests/container/package.json` is a deliberately separate harness — *"Isolated from the app's own
+deps"*, in its own words — and declares `@playwright/test` as `^1.48.0`, a range. It has already
+drifted: it currently resolves **1.60.0** while this directory pins 1.62.1. That is fine, and it is
+why the two are not shared. The container screenshot test is not byte-compared; these shots are.
+
+### What actually enforces it
+
+The pin states the intent. It does not, on its own, enforce anything — Node resolution walks **up**
+from `video/`, so if `video/node_modules/playwright` is missing and some ancestor has a different
+copy, capture runs on that one and the pin is never consulted. It has bitten twice: a repo pinning
+1.62.1 captured on 1.60.0 from its repo root, and a checkout under `.worktrees/` picked up 1.58.1
+from its parent clone without `npm ci` ever running in the worktree.
+
+`make.sh` is what closes it, and it is worth knowing what it will do to you:
+
+- It compares the **resolved** version against the pin, not merely that `playwright` imports. A
+  presence-only check passes on the wrong copy, which is exactly how the two cases above happened.
+- On a mismatch it **refuses to capture**, printing both versions and the path the wrong one came
+  from — a wrong-version shoot is far cheaper to stop here than to discover in review.
+- It installs into `video/node_modules` specifically, so `video/` wins resolution over any ancestor.
+  That placement is the point, not an implementation detail.
+- If the spec is ever a range rather than an exact version, the run **warns**: a range cannot
+  promise the next shoot resolves the same build.
+
+Local Bench has not actually been bitten, and the reason is worth recording so nobody "fixes" it:
+the repo root declares no `playwright` at all, and the copy under `tests/container/node_modules` is
+a **sibling** of `video/`, not an ancestor, so it is off the resolution path entirely. Both facts
+are incidental. The gate above is what you are relying on.
