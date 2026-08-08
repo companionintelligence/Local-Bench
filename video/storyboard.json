@@ -25,13 +25,58 @@
   },
   "scenes": [
     {
+      "id": "someone-elses-hardware",
+      "kind": "feature",
+      "seconds": 7,
+      "title": "Benchmarked on a machine you don't own",
+      "caption": "A leaderboard tells you what is fast in a datacentre.",
+      "narration": "Every leaderboard you have read measures someone else's hardware, in a datacentre you will never see.",
+      "items": [
+        {
+          "label": "Where it ran",
+          "value": "a datacentre"
+        },
+        {
+          "label": "What it measured",
+          "value": "their hardware"
+        },
+        {
+          "label": "What you have",
+          "value": "a box in a closet"
+        }
+      ],
+      "reveal": "paced"
+    },
+    {
+      "id": "where-people-quit",
+      "kind": "feature",
+      "seconds": 6,
+      "title": "Most people quit right about here",
+      "caption": "Pick by parameter count. Hope it fits. Never check.",
+      "narration": "So you choose by parameter count, hope it fits, and never find out what your own machine can do.",
+      "items": [
+        {
+          "label": "How you choose",
+          "value": "parameter count"
+        },
+        {
+          "label": "How you verify",
+          "value": "you don't"
+        }
+      ],
+      "reveal": "paced",
+      "transition": "cut"
+    },
+    {
       "id": "open",
       "kind": "intro",
       "seconds": 5,
       "title": "Local Bench",
       "caption": "Benchmark the models you actually run.",
-      "narration": "Leaderboards measure someone else's hardware. This one measures yours.",
-      "mark": "./assets/app-icon.png"
+      "narration": "This one measures yours. Forty-two curated models, fourteen prompts, on the box you already have.",
+      "mark": "./assets/app-icon.png",
+      "reveal": "paced",
+      "transition": "hold"
     },
     {
       "id": "first-run",
@@ -39,7 +84,7 @@
       "chapter": "setup",
       "seconds": 7,
       "caption": "One page. No account, no telemetry, no cloud.",
-      "narration": "One page, no account. The whole curated catalog, before you install anything.",
+      "narration": "One page, no account. The whole catalog is browsable before you install anything.",
       "shots": [
         {
           "id": "dashboard-hero",
@@ -263,8 +308,8 @@
       "kind": "screen",
       "chapter": "benchmark",
       "seconds": 7,
-      "caption": "Every run records the hardware behind it.",
-      "narration": "Every run records the hardware it ran on: processor, memory, and graphics.",
+      "caption": "Every result is stamped with the machine that made it.",
+      "narration": "Every result is stamped with the machine that produced it. Processor, memory, graphics.",
       "shots": [
         {
           "id": "system-specs",
@@ -392,9 +437,9 @@
       "id": "recap",
       "kind": "feature",
       "seconds": 6,
-      "title": "Local Bench",
+      "title": "What stays yours",
       "caption": "Measured on your hardware, stored on your disk.",
-      "narration": "Forty-two models, fourteen prompts, results in a local SQLite file.",
+      "narration": "Forty-two models, fourteen prompts, and the results in a SQLite file on your own disk.",
       "items": [
         {
           "label": "Curated catalog",
