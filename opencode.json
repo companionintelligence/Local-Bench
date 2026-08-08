@@ -1,10 +1,43 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "anthropic/claude-sonnet-4-6",
-  "instructions": "You are working in Local-Bench, part of the Companion Intelligence platform (Lifescope Inc). Local LLM benchmark and test harness. Evaluates models running via Ollama or CI-Server's LLM facade against defined test cases. Architecture reference: CI-Engineering/architecture/architecture.md. All code is private and confidential. Multiple agents may work this repo in parallel — never use destructive git operations without user confirmation.",
-  "rules": [
-    "Reference CI-Engineering issues in commits and PRs",
-    "Keep changes small and well-scoped",
-    "Never git reset --hard or git clean -f without explicit confirmation"
-  ]
+  "model": "ollama/qwen3.6-35b-64k:latest",
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "small_model": "ollama/qwen3.6-35b-64k:latest",
+  "provider": {
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen3.6-35b-64k:latest": {
+          "name": "Qwen 3.6 35B 64K"
+        },
+        "qwen3.6:35b": {
+          "name": "Qwen 3.6 35B"
+        },
+        "qwen3.6:27b": {
+          "name": "Qwen 3.6 27B"
+        },
+        "nemotron3:33b": {
+          "name": "Nemotron 3 33B"
+        },
+        "gemma4:31b": {
+          "name": "Gemma 4 31B"
+        },
+        "gemma4:e4b": {
+          "name": "Gemma 4 E4B"
+        },
+        "qwen3-vl:4b": {
+          "name": "Qwen 3 VL 4B"
+        },
+        "qwen2.5:0.5b": {
+          "name": "Qwen 2.5 0.5B"
+        }
+      }
+    }
+  }
 }
