@@ -30,7 +30,7 @@
       "seconds": 5,
       "title": "Local Bench",
       "caption": "Benchmark the models you actually run.",
-      "narration": "A leaderboard measures someone else's hardware. Local Bench measures yours.",
+      "narration": "Leaderboards measure someone else's hardware. This one measures yours.",
       "mark": "./assets/app-icon.png"
     },
     {
