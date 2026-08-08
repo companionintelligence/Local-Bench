@@ -10,7 +10,8 @@
   "meta": {
     "fps": 30,
     "transitionSeconds": 0.5,
-    "pacing": "fit"
+    "pacing": "fit",
+    "pacingTail": 0.15
   },
   "chapters": {
     "setup": "First run",
@@ -29,7 +30,7 @@
       "seconds": 5,
       "title": "Local Bench",
       "caption": "Benchmark the models you actually run.",
-      "narration": "This is Local Bench, from Companion Intelligence.",
+      "narration": "Leaderboards measure someone else's hardware. This one measures yours.",
       "mark": "./assets/app-icon.png"
     },
     {
