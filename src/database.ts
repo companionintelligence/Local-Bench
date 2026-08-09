@@ -1,4 +1,13 @@
-import Database from 'better-sqlite3';
+// Uses Node's built-in `node:sqlite` module (DatabaseSync) instead of the
+// native better-sqlite3 addon. better-sqlite3 ships a legacy Node
+// C++/NAN-based addon that Deno's N-API compat layer cannot load, so it is
+// permanently unsupported under Deno. node:sqlite is API-compatible enough
+// (prepare/run/all/get/exec) and works both under Deno (built in, no flag
+// required as of Deno 2.9) and under Node >=22.5 (stable without a flag as
+// of Node 24). It does not provide better-sqlite3's `db.transaction()`
+// helper, so the one use of that below is reimplemented manually with
+// BEGIN/COMMIT/ROLLBACK.
+import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import { SystemSpecs } from './systemSpecs';
 
@@ -21,17 +30,17 @@ export interface SystemSpecsRecord extends SystemSpecs {
 
 const DB_PATH = path.join(__dirname, '..', 'benchmark_data.db');
 
-let db: Database.Database | null = null;
+let db: DatabaseSync | null = null;
 
 /**
  * Initialize the SQLite database and create tables if they don't exist
  */
-export function initDatabase(): Database.Database {
+export function initDatabase(): DatabaseSync {
   if (db) {
     return db;
   }
 
-  db = new Database(DB_PATH);
+  db = new DatabaseSync(DB_PATH);
 
   // Create system_specs table
   db.exec(`
@@ -99,7 +108,7 @@ export function closeDatabase(): void {
 /**
  * Get the database instance
  */
-export function getDatabase(): Database.Database {
+export function getDatabase(): DatabaseSync {
   if (!db) {
     return initDatabase();
   }
@@ -150,7 +159,10 @@ export function saveBenchmarkResults(results: BenchmarkResult[], systemSpecsId?:
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const insertMany = database.transaction((results: BenchmarkResult[]) => {
+  // node:sqlite has no built-in `database.transaction()` helper (unlike
+  // better-sqlite3), so wrap the batch insert manually.
+  database.exec('BEGIN');
+  try {
     for (const result of results) {
       stmt.run(
         result.model,
@@ -163,9 +175,11 @@ export function saveBenchmarkResults(results: BenchmarkResult[], systemSpecsId?:
         systemSpecsId || null
       );
     }
-  });
-
-  insertMany(results);
+    database.exec('COMMIT');
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 /**
