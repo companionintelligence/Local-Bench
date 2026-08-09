@@ -1,0 +1,21 @@
+{
+  "$schema": "https://deno.land/x/deno/cli/schemas/config-file.v1.json",
+  "nodeModulesDir": "auto",
+  "unstable": ["sloppy-imports"],
+  "tasks": {
+    "build": "deno run -A npm:typescript@5.9.3/tsc",
+    "benchmark": "deno task build && deno run -A dist/benchmark.js",
+    "server": "deno task build && deno run -A dist/server.js",
+    "start": "deno task build && deno run -A dist/server.js",
+    "strix-halo": "deno task build && deno run -A dist/strixHaloCli.js",
+    "test": "deno run -A npm:jest@30.2.0",
+    "test:watch": "deno run -A npm:jest@30.2.0 --watch",
+    "test:coverage": "deno run -A npm:jest@30.2.0 --coverage",
+    "lint": "deno lint src"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window"],
+    "strict": true
+  },
+  "exclude": ["dist", "coverage", "node_modules", "tests/container"]
+}
