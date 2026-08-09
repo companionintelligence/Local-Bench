@@ -42,7 +42,7 @@ Full page view: [`docs/screenshots/01-overview.png`](docs/screenshots/01-overvie
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) version 18 or higher.
+- [Node.js](https://nodejs.org/) version 22.5 or higher (needed for the built-in `node:sqlite` module), or [Deno](https://deno.com/) 2.9+ — see [Running under Deno](#running-under-deno).
 - [Ollama](https://ollama.ai/) running locally with at least one model pulled.
 - Optional: an AMD Ryzen AI Max "Strix Halo" machine for the llama.cpp GPU path. See [STRIX_HALO.md](STRIX_HALO.md).
 
@@ -142,6 +142,33 @@ npm test              # Jest unit tests
 npm run test:coverage
 npm run build         # typecheck and emit to dist/
 ```
+
+## Running under Deno
+
+This repo also runs under [Deno](https://deno.com/) (2.9+) via its npm/Node
+compatibility layer — `deno.json` mirrors the npm scripts above as tasks:
+
+```bash
+deno task build         # tsc -> dist/
+deno task server        # build + serve on :3000
+deno task start          # same as server
+deno task benchmark      # build + run the CLI benchmark
+deno task strix-halo     # build + run the Strix Halo CLI
+deno task test           # runs the existing Jest suite under Deno
+deno task test:watch
+deno task test:coverage
+deno task lint            # deno lint (stricter defaults than the repo's ts-jest/tsc setup; pre-existing findings aren't all fixed yet)
+```
+
+The database layer uses Node's built-in `node:sqlite` module rather than
+`better-sqlite3`, since better-sqlite3's native addon does not load under
+Deno. `node:sqlite` works the same way under Node (>=22.5) and Deno, so the
+npm scripts and the `deno task` equivalents share the same `src/database.ts`
+with no forked code path.
+
+The published container image (`ghcr.io/companionintelligence/ci-local-bench`)
+now builds and runs on `denoland/deno` instead of `node`; see the
+[`Dockerfile`](Dockerfile).
 
 ## Troubleshooting
 

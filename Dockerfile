@@ -1,25 +1,33 @@
 # Local Bench (ci-local-bench) — CI marketplace container.
-# Node HTTP server that serves index.html + the /api benchmark endpoints from cwd.
+# Deno HTTP server (server.ts, compiled via tsc for the CommonJS/node:sqlite
+# entrypoint) that serves index.html + the /api benchmark endpoints from cwd.
 # Published as ghcr.io/companionintelligence/ci-local-bench.
+#
+# Migrated from a node:20-bookworm-slim image to Deno: the app's only native
+# addon (better-sqlite3) doesn't load under Deno's N-API compat layer, so
+# database.ts now uses the built-in `node:sqlite` module instead — no native
+# compilation (python3/make/g++) needed anymore. `deno run` is used (not
+# `deno compile`), matching how this container was already deployed.
 
 # ---- build stage ----
-FROM node:20-bookworm-slim AS build
+FROM denoland/deno:2.9.5 AS build
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-RUN npm prune --omit=dev
+COPY deno.json deno.lock package.json package-lock.json tsconfig.json ./
+COPY src ./src
+RUN deno task build
 
 # ---- runtime stage ----
-FROM node:20-bookworm-slim
+FROM denoland/deno:2.9.5
 WORKDIR /app
-ENV NODE_ENV=production PORT=3000
+ENV PORT=3000
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/index.html ./index.html
-COPY --from=build /app/assets ./assets
+COPY --from=build /app/deno.json ./deno.json
+COPY --from=build /app/deno.lock ./deno.lock
 COPY --from=build /app/package.json ./package.json
+COPY index.html ./index.html
+COPY assets ./assets
 EXPOSE 3000
-CMD ["node", "dist/server.js"]
+# --cached-only makes the container fail fast at startup instead of quietly
+# hitting the npm registry if node_modules and deno.lock ever drift apart.
+CMD ["run", "-A", "--cached-only", "dist/server.js"]
