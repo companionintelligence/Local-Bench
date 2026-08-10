@@ -96,9 +96,24 @@
             "waitUntil": "networkidle",
             "waitFor": "#modelCatalogSummary .tag",
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.14,
+              "y": 0,
+              "w": 0.72,
+              "h": 0.42
+            },
+            "portrait": {
+              "x": 0.02,
+              "y": 0.06,
+              "w": 0.96,
+              "h": 0.94
+            }
           }
         }
-      ]
+      ],
+      "transition": "cut"
     },
     {
       "id": "needs-ollama",
@@ -112,7 +127,7 @@
           "id": "model-catalog",
           "url": "local-bench.local",
           "alt": "The model picker: curated Ollama models as selectable cards, the installed and curated counts, and the notice that Ollama is not reachable.",
-          "motion": "drift-down",
+          "motion": "pull-back",
           "capture": {
             "path": "/",
             "waitUntil": "networkidle",
@@ -123,6 +138,20 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.16,
+              "y": 0.42,
+              "w": 0.685,
+              "h": 0.16
+            },
+            "portrait": {
+              "x": 0.06,
+              "y": 0.39,
+              "w": 0.88,
+              "h": 0.22
+            }
           }
         }
       ],
@@ -160,10 +189,20 @@
               "h": 0.538
             },
             "portrait": {
-              "x": 0,
+              "x": 0.02,
               "y": 0,
-              "w": 0.738,
-              "h": 0.738
+              "w": 0.96,
+              "h": 0.9
+            }
+          },
+          "pointer": {
+            "landscape": {
+              "x": 0.311,
+              "y": 0.155
+            },
+            "portrait": {
+              "x": 0.876,
+              "y": 0.169
             }
           }
         }
@@ -196,6 +235,30 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.12,
+              "y": 0.02,
+              "w": 0.76,
+              "h": 0.76
+            },
+            "portrait": {
+              "x": 0.02,
+              "y": 0.02,
+              "w": 0.96,
+              "h": 0.94
+            }
+          },
+          "pointer": {
+            "landscape": {
+              "x": 0.834,
+              "y": 0.345
+            },
+            "portrait": {
+              "x": 0.911,
+              "y": 0.272
+            }
           }
         }
       ],
@@ -230,6 +293,30 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.14,
+              "y": 0.06,
+              "w": 0.72,
+              "h": 0.3
+            },
+            "portrait": {
+              "x": 0.02,
+              "y": 0.02,
+              "w": 0.96,
+              "h": 0.5
+            }
+          },
+          "pointer": {
+            "landscape": {
+              "x": 0.311,
+              "y": 0.157
+            },
+            "portrait": {
+              "x": 0.881,
+              "y": 0.197
+            }
           }
         }
       ],
@@ -261,6 +348,30 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.056,
+              "y": 0.225,
+              "w": 0.538,
+              "h": 0.538
+            },
+            "portrait": {
+              "x": 0.02,
+              "y": 0.06,
+              "w": 0.96,
+              "h": 0.9
+            }
+          },
+          "pointer": {
+            "landscape": {
+              "x": 0.213,
+              "y": 0.494
+            },
+            "portrait": {
+              "x": 0.5,
+              "y": 0.434
+            }
           }
         }
       ],
@@ -278,7 +389,7 @@
           "id": "benchmark-complete",
           "url": "local-bench.local",
           "alt": "A completed benchmark: the success notice counting the successful runs, above the model cards for the two models that were selected and measured.",
-          "motion": "push-in",
+          "motion": "pull-back",
           "capture": {
             "path": "/",
             "waitUntil": "networkidle",
@@ -298,6 +409,20 @@
               }
             ],
             "settle": 600
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.16,
+              "y": 0.06,
+              "w": 0.68,
+              "h": 0.32
+            },
+            "portrait": {
+              "x": 0.04,
+              "y": 0.05,
+              "w": 0.92,
+              "h": 0.5
+            }
           }
         }
       ],
@@ -343,7 +468,7 @@
           "id": "response-compare",
           "url": "local-bench.local",
           "alt": "The Response comparison section: the prompt that was sent, then two model pickers with each model's full answer in its own pane.",
-          "motion": "push-in",
+          "motion": "pull-back",
           "capture": {
             "path": "/",
             "waitUntil": "networkidle",
@@ -363,6 +488,30 @@
               }
             ],
             "settle": 600
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.145,
+              "y": 0.22,
+              "w": 0.71,
+              "h": 0.62
+            },
+            "portrait": {
+              "x": 0.02,
+              "y": 0.1,
+              "w": 0.96,
+              "h": 0.78
+            }
+          },
+          "pointer": {
+            "landscape": {
+              "x": 0.49,
+              "y": 0.423
+            },
+            "portrait": {
+              "x": 0.911,
+              "y": 0.352
+            }
           }
         }
       ],
@@ -393,10 +542,18 @@
             "settle": 450
           },
           "focus": {
-            "x": 0.04,
-            "y": 0.048,
-            "w": 0.736,
-            "h": 0.736
+            "landscape": {
+              "x": 0.145,
+              "y": 0.06,
+              "w": 0.71,
+              "h": 0.4
+            },
+            "portrait": {
+              "x": 0.03,
+              "y": 0.05,
+              "w": 0.94,
+              "h": 0.55
+            }
           }
         }
       ],
@@ -428,6 +585,30 @@
                 "waitFor": "#topic-what-it-shows:not([hidden]) p"
               }
             ]
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.13,
+              "y": 0,
+              "w": 0.74,
+              "h": 0.56
+            },
+            "portrait": {
+              "x": 0.02,
+              "y": 0.06,
+              "w": 0.94,
+              "h": 0.9
+            }
+          },
+          "pointer": {
+            "landscape": {
+              "x": 0.203,
+              "y": 0.245
+            },
+            "portrait": {
+              "x": 0.256,
+              "y": 0.272
+            }
           }
         }
       ],
