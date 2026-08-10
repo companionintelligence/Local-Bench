@@ -88,7 +88,7 @@
       "shots": [
         {
           "id": "dashboard-hero",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "Local Bench dashboard: hero copy and four summary cards for catalog size, installed models, top intelligence score and fastest measured model.",
           "motion": "push-in",
           "capture": {
@@ -125,7 +125,7 @@
       "shots": [
         {
           "id": "model-catalog",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The model picker: curated Ollama models as selectable cards, the installed and curated counts, and the notice that Ollama is not reachable.",
           "motion": "pull-back",
           "capture": {
@@ -167,7 +167,7 @@
       "shots": [
         {
           "id": "models-installed",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The model picker with Ollama connected: the installed catalog models sort to the top with enabled checkboxes, above the disabled cards for models not pulled locally.",
           "motion": "push-in",
           "capture": {
@@ -219,7 +219,7 @@
       "shots": [
         {
           "id": "prompt-picker",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The test prompt dropdown, its category and description, and the editable textarea holding the prompt that will be sent to the model.",
           "motion": "push-in",
           "capture": {
@@ -274,7 +274,7 @@
       "shots": [
         {
           "id": "prompt-library",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The prompt library grid with the first card expanded to reveal the full prompt text that will be sent to the model.",
           "motion": "drift-down",
           "capture": {
@@ -332,7 +332,7 @@
       "shots": [
         {
           "id": "run-controls",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The run controls — Run benchmark, Select all installed, Clear selection — sitting under the prompt library.",
           "motion": "push-in",
           "capture": {
@@ -387,7 +387,7 @@
       "shots": [
         {
           "id": "benchmark-complete",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "A completed benchmark: the success notice counting the successful runs, above the model cards for the two models that were selected and measured.",
           "motion": "pull-back",
           "capture": {
@@ -438,7 +438,7 @@
       "shots": [
         {
           "id": "system-specs",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The System specifications card: server name, CPU model, core and thread counts, memory, operating system, motherboard and detected GPU.",
           "motion": "drift-down",
           "capture": {
@@ -466,7 +466,7 @@
       "shots": [
         {
           "id": "response-compare",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The Response comparison section: the prompt that was sent, then two model pickers with each model's full answer in its own pane.",
           "motion": "pull-back",
           "capture": {
@@ -527,7 +527,7 @@
       "shots": [
         {
           "id": "intelligence-index",
-          "url": "local-bench.local",
+          "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The Model intelligence table: the rated catalog models ranked by intelligence index, each with its score, size, context window and input types.",
           "motion": "drift-down",
           "capture": {
@@ -569,7 +569,7 @@
       "shots": [
         {
           "id": "docs",
-          "url": "local-bench.local/#docs",
+          "url": "local-bench-living-room-server-acme.ci.computer/#docs",
           "alt": "The in-app documentation view: the topic list beside the \"What it shows, and why\" topic, explaining what each measured number means.",
           "motion": "push-in",
           "capture": {
