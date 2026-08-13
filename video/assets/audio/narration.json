@@ -130,8 +130,8 @@
       }
     },
     "close": {
-      "text": "Benchmark before you commit with Local Bench. Visit ci dot computer. UnCloud your life.",
-      "seconds": 7.459,
+      "text": "Benchmark before you commit with Local Bench, at ci dot computer slash download. UnCloud your life.",
+      "seconds": 7.745,
       "prosody": {
         "rate": "-8%",
         "pitch": "-2Hz",
