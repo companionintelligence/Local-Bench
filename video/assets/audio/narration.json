@@ -3,36 +3,9 @@
   "engine": "edge",
   "voice": "en-GB-SoniaNeural",
   "scenes": {
-    "open": {
-      "text": "This one measures yours. Forty-two curated models, fourteen prompts, on the box you already have.",
-      "seconds": 7.318,
-      "prosody": {
-        "rate": "-6%",
-        "pitch": "-2Hz",
-        "volume": "+0%"
-      }
-    },
-    "first-run": {
-      "text": "One page, no account. The whole catalog is browsable before you install anything.",
-      "seconds": 5.995,
-      "prosody": {
-        "rate": "-3%",
-        "pitch": "+0Hz",
-        "volume": "+0%"
-      }
-    },
-    "needs-ollama": {
-      "text": "Local Bench talks to Ollama. With no daemon running, it shows the catalog and says so.",
-      "seconds": 6.106,
-      "prosody": {
-        "rate": "-3%",
-        "pitch": "+0Hz",
-        "volume": "+0%"
-      }
-    },
-    "models-installed": {
-      "text": "Start Ollama and the catalog comes alive. Anything you have already pulled becomes selectable.",
-      "seconds": 6.53,
+    "benchmark-complete": {
+      "text": "A benchmark finishes on the Ollama host you selected, with the result saved for comparison.",
+      "seconds": 6.113,
       "prosody": {
         "rate": "-3%",
         "pitch": "+0Hz",
@@ -40,35 +13,8 @@
       }
     },
     "pick-a-prompt": {
-      "text": "Pick a prompt. The box below it is editable, and that exact text is what runs.",
-      "seconds": 5.882,
-      "prosody": {
-        "rate": "-3%",
-        "pitch": "+0Hz",
-        "volume": "+0%"
-      }
-    },
-    "browse-prompts": {
-      "text": "Fourteen prompts, from coding to operations. Expand one to read it first.",
-      "seconds": 5.848,
-      "prosody": {
-        "rate": "-3%",
-        "pitch": "+0Hz",
-        "volume": "+0%"
-      }
-    },
-    "run-it": {
-      "text": "Select what you have installed and run it. Models you have not pulled stay disabled.",
-      "seconds": 5.542,
-      "prosody": {
-        "rate": "-3%",
-        "pitch": "+0Hz",
-        "volume": "+0%"
-      }
-    },
-    "benchmark-complete": {
-      "text": "The run finishes on your own machine. Nothing was uploaded, and nothing was metered.",
-      "seconds": 5.798,
+      "text": "Pick a prompt, edit it, and run that exact text against the selected models.",
+      "seconds": 5.33,
       "prosody": {
         "rate": "-3%",
         "pitch": "+0Hz",
@@ -76,8 +22,8 @@
       }
     },
     "system-specs": {
-      "text": "Every result is stamped with the machine that produced it. Processor, memory, graphics.",
-      "seconds": 6.511,
+      "text": "Every result records the processor, memory, and graphics hardware behind the run.",
+      "seconds": 5.602,
       "prosody": {
         "rate": "-3%",
         "pitch": "+0Hz",
@@ -85,8 +31,8 @@
       }
     },
     "response-compare": {
-      "text": "Speed is only half the question. Read what each model actually wrote.",
-      "seconds": 4.881,
+      "text": "Speed is only half the question. Compare what each model actually wrote.",
+      "seconds": 5.053,
       "prosody": {
         "rate": "-3%",
         "pitch": "+0Hz",
@@ -94,17 +40,8 @@
       }
     },
     "model-intelligence": {
-      "text": "Thirty-one rated models, ranked by the Artificial Analysis intelligence index.",
-      "seconds": 5.714,
-      "prosody": {
-        "rate": "-3%",
-        "pitch": "+0Hz",
-        "volume": "+0%"
-      }
-    },
-    "read-the-docs": {
-      "text": "The docs ship inside the app: what each number means, and how to budget agents.",
-      "seconds": 5.21,
+      "text": "Use the intelligence table as context before you download another model.",
+      "seconds": 4.763,
       "prosody": {
         "rate": "-3%",
         "pitch": "+0Hz",
@@ -112,8 +49,8 @@
       }
     },
     "recap": {
-      "text": "Forty-two models, fourteen prompts, and the results in a SQLite file on your own disk.",
-      "seconds": 6.283,
+      "text": "Selected models run through Ollama, and the results live in a local SQLite file.",
+      "seconds": 5.77,
       "prosody": {
         "rate": "-5%",
         "pitch": "-1Hz",
@@ -121,29 +58,11 @@
       }
     },
     "close": {
-      "text": "Local Bench, from Companion Intelligence. UnCloud your life.",
-      "seconds": 5.493,
+      "text": "Benchmark before you commit with Local Bench. Visit ci dot computer. UnCloud your life.",
+      "seconds": 7.459,
       "prosody": {
         "rate": "-8%",
         "pitch": "-2Hz",
-        "volume": "+0%"
-      }
-    },
-    "someone-elses-hardware": {
-      "text": "Every leaderboard you have read measures someone else's hardware, in a datacentre you will never see.",
-      "seconds": 5.992,
-      "prosody": {
-        "rate": "-5%",
-        "pitch": "-1Hz",
-        "volume": "+0%"
-      }
-    },
-    "where-people-quit": {
-      "text": "So you choose by parameter count, hope it fits, and never find out what your own machine can do.",
-      "seconds": 6.243,
-      "prosody": {
-        "rate": "-5%",
-        "pitch": "-1Hz",
         "volume": "+0%"
       }
     }

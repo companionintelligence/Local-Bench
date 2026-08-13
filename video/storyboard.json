@@ -20,9 +20,56 @@
     "docs": "Documentation"
   },
   "media": {
-    "music": null,
-    "musicVolume": 0.14
+    "music": "assets/media/ci-campaign-bed.mp3",
+    "musicLufs": -22
   },
+  "master": [
+    {
+      "ref": "benchmark-complete",
+      "caption": "Know which local model earns the job.",
+      "narration": "A benchmark finishes on the Ollama host you selected, with the result saved for comparison.",
+      "minSeconds": 7
+    },
+    {
+      "ref": "pick-a-prompt",
+      "caption": "Pick a prompt. Edit it. Run that exact text.",
+      "narration": "Pick a prompt, edit it, and run that exact text against the selected models.",
+      "minSeconds": 7
+    },
+    {
+      "ref": "system-specs",
+      "caption": "Every result records the hardware behind it.",
+      "narration": "Every result records the processor, memory, and graphics hardware behind the run.",
+      "minSeconds": 7
+    },
+    {
+      "ref": "response-compare",
+      "caption": "Speed is half the question. Read the answers.",
+      "narration": "Speed is only half the question. Compare what each model actually wrote.",
+      "minSeconds": 6.5
+    },
+    {
+      "ref": "model-intelligence",
+      "caption": "Use the intelligence table as context before downloading.",
+      "narration": "Use the intelligence table as context before you download another model.",
+      "minSeconds": 6.5
+    },
+    {
+      "ref": "recap",
+      "caption": "Selected models run through Ollama. Results live in local SQLite.",
+      "narration": "Selected models run through Ollama, and the results live in a local SQLite file.",
+      "minSeconds": 6.5
+    },
+    {
+      "ref": "close",
+      "caption": "ci.computer",
+      "cta": "Benchmark before you commit",
+      "tagline": "UnCloud your life.",
+      "url": "ci.computer",
+      "narration": "Benchmark before you commit with Local Bench. Visit ci dot computer. UnCloud your life.",
+      "minSeconds": 7
+    }
+  ],
   "scenes": [
     {
       "id": "someone-elses-hardware",
