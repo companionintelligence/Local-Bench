@@ -20,54 +20,84 @@
     "docs": "Documentation"
   },
   "media": {
-    "music": "assets/media/ci-campaign-bed.mp3",
+    "music": "assets/media/ci-campaign-bed-110.mp3",
     "musicLufs": -22
   },
   "master": [
+    "someone-elses-hardware",
     {
-      "ref": "benchmark-complete",
-      "caption": "Know which local model earns the job.",
-      "narration": "A benchmark finishes on the Ollama host you selected, with the result saved for comparison.",
-      "minSeconds": 7
+      "ref": "where-people-quit",
+      "items": [
+        {
+          "label": "How you choose",
+          "value": "parameter count"
+        },
+        {
+          "label": "How you verify",
+          "value": "you don't"
+        },
+        {
+          "label": "What you learn",
+          "value": "nothing"
+        }
+      ]
+    },
+    "open",
+    {
+      "ref": "needs-ollama",
+      "caption": "Nothing installed yet. The catalog still reads.",
+      "transition": "dissolve"
+    },
+    {
+      "ref": "models-installed",
+      "caption": "It reads what you have pulled. Two of forty-two."
     },
     {
       "ref": "pick-a-prompt",
       "caption": "Pick a prompt. Edit it. Run that exact text.",
-      "narration": "Pick a prompt, edit it, and run that exact text against the selected models.",
-      "minSeconds": 7
+      "narration": "Pick a prompt, edit it, and run that exact text against the selected models."
+    },
+    {
+      "ref": "run-it",
+      "caption": "Every selected model gets the same prompt."
+    },
+    {
+      "ref": "benchmark-complete",
+      "caption": "The run finishes here. Two models, measured.",
+      "narration": "A benchmark finishes on the Ollama host you selected, with the result saved for comparison.",
+      "transition": "hold"
     },
     {
       "ref": "system-specs",
-      "caption": "Every result records the hardware behind it.",
-      "narration": "Every result records the processor, memory, and graphics hardware behind the run.",
-      "minSeconds": 7
+      "caption": "Not a datacentre. This machine, on this run.",
+      "narration": "Every result records the processor, memory, and graphics hardware behind the run."
     },
     {
       "ref": "response-compare",
-      "caption": "Speed is half the question. Read the answers.",
-      "narration": "Speed is only half the question. Compare what each model actually wrote.",
-      "minSeconds": 6.5
+      "caption": "Fast is not the same as good.",
+      "narration": "Speed is only half the question. Compare what each model actually wrote."
     },
     {
       "ref": "model-intelligence",
-      "caption": "Use the intelligence table as context before downloading.",
-      "narration": "Use the intelligence table as context before you download another model.",
-      "minSeconds": 6.5
+      "caption": "Ranked by an index, not by parameter count.",
+      "narration": "Use the intelligence table as context before you download another model."
+    },
+    {
+      "ref": "read-the-docs",
+      "caption": "Even the documentation is local."
     },
     {
       "ref": "recap",
-      "caption": "Selected models run through Ollama. Results live in local SQLite.",
+      "caption": "Measured on your hardware, stored on your disk.",
       "narration": "Selected models run through Ollama, and the results live in a local SQLite file.",
-      "minSeconds": 6.5
+      "transition": "dissolve"
     },
     {
       "ref": "close",
-      "caption": "ci.computer",
       "cta": "Benchmark before you commit",
       "tagline": "UnCloud your life.",
-      "url": "ci.computer",
-      "narration": "Benchmark before you commit with Local Bench. Visit ci dot computer. UnCloud your life.",
-      "minSeconds": 7
+      "url": "ci.computer/download",
+      "narration": "Benchmark before you commit with Local Bench, at ci dot computer slash download. UnCloud your life."
     }
   ],
   "scenes": [
@@ -230,10 +260,10 @@
           },
           "focus": {
             "landscape": {
-              "x": 0.019,
-              "y": 0.075,
-              "w": 0.538,
-              "h": 0.538
+              "x": 0.145,
+              "y": 0.09,
+              "w": 0.71,
+              "h": 0.3
             },
             "portrait": {
               "x": 0.02,
@@ -398,10 +428,10 @@
           },
           "focus": {
             "landscape": {
-              "x": 0.056,
-              "y": 0.225,
-              "w": 0.538,
-              "h": 0.538
+              "x": 0.145,
+              "y": 0.21,
+              "w": 0.71,
+              "h": 0.33
             },
             "portrait": {
               "x": 0.02,
@@ -487,7 +517,7 @@
           "id": "system-specs",
           "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The System specifications card: server name, CPU model, core and thread counts, memory, operating system, motherboard and detected GPU.",
-          "motion": "drift-down",
+          "motion": "push-in",
           "capture": {
             "path": "/",
             "waitUntil": "networkidle",
@@ -498,6 +528,20 @@
               }
             ],
             "settle": 450
+          },
+          "focus": {
+            "landscape": {
+              "x": 0.145,
+              "y": 0.71,
+              "w": 0.71,
+              "h": 0.27
+            },
+            "portrait": {
+              "x": 0,
+              "y": 0.39,
+              "w": 1,
+              "h": 0.57
+            }
           }
         }
       ],
@@ -515,7 +559,7 @@
           "id": "response-compare",
           "url": "local-bench-living-room-server-acme.ci.computer",
           "alt": "The Response comparison section: the prompt that was sent, then two model pickers with each model's full answer in its own pane.",
-          "motion": "pull-back",
+          "motion": "push-in",
           "capture": {
             "path": "/",
             "waitUntil": "networkidle",
@@ -538,10 +582,10 @@
           },
           "focus": {
             "landscape": {
-              "x": 0.145,
-              "y": 0.22,
-              "w": 0.71,
-              "h": 0.62
+              "x": 0.15,
+              "y": 0.28,
+              "w": 0.7,
+              "h": 0.58
             },
             "portrait": {
               "x": 0.02,
