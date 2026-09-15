@@ -122,7 +122,7 @@ import { fileURLToPath } from "node:url";
  *     a benchmark in that checkout the DB persists and rows appear. Capture from
  *     a clean tree, or delete `benchmark_data.db` first. This is true in BOTH
  *     scenarios — `benchmarked` deliberately leaves `/api/results` alone.
- *   • Montserrat is loaded from fonts.googleapis.com (index.html:24-27) with a
+ *   • Manrope is loaded from fonts.googleapis.com (index.html:24-27) with a
  *     system-font fallback. Capture with network access or every glyph metric
  *     changes. The `requestfailed` warning below exists for exactly this.
  *   • Font rasterisation differs between macOS and Linux even with the same
@@ -314,7 +314,7 @@ export default {
     }
 
     // Warn loudly if an external asset fails — an unstyled capture looks like a
-    // UI regression but is really a network failure. Montserrat is the one that
+    // UI regression but is really a network failure. Manrope is the one that
     // matters here; Chart.js and jsPDF are vendored under assets/.
     context.on("requestfailed", (req) => {
       if (/fonts\.(googleapis|gstatic)|cdn\./.test(req.url())) {
