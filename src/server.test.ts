@@ -1,30 +1,120 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import axios from 'axios';
-import { server } from './server';
+import { server, resetTargetState, normaliseBaseUrl, getTargetUrl, getTargetPath, BenchmarkAggregate } from './server';
 import * as database from './database';
+import * as benchmark from './benchmark';
 import { BenchmarkResult } from './database';
 
 // Mock fs module
 jest.mock('fs');
 const mockedFs = fs as jest.Mocked<typeof fs>;
 
-// Mock database module
-jest.mock('./database');
-const mockedDatabase = database as jest.Mocked<typeof database>;
+// Mock database module. The automock covers everything this branch exports;
+// the two aggregate functions arrive with the db branch, so they are declared
+// here explicitly (harmless once the automock also produces them).
+jest.mock('./database', () => ({
+  ...(jest.createMockFromModule('./database') as object),
+  saveBenchmarkAggregate: jest.fn(),
+  getBenchmarkAggregates: jest.fn()
+}));
+type DatabaseWithAggregates = typeof database & {
+  saveBenchmarkAggregate: (aggregate: BenchmarkAggregate, systemSpecsId?: number) => void;
+  getBenchmarkAggregates: (limit?: number) => BenchmarkAggregate[];
+};
+const mockedDatabase = database as jest.Mocked<DatabaseWithAggregates>;
+
+// Mock the benchmark runner and the save helpers, but keep the real prompt list
+// and model catalog so /api/prompts and /api/models exercise real data.
+jest.mock('./benchmark', () => ({
+  ...jest.requireActual('./benchmark'),
+  benchmarkModelConcurrently: jest.fn(),
+  saveResultsToCSV: jest.fn(),
+  saveResultsToDatabase: jest.fn()
+}));
+type BenchmarkWithConcurrency = typeof benchmark & {
+  benchmarkModelConcurrently: (
+    modelName: string,
+    customPrompt: string | undefined,
+    options: { concurrency: number; stream: boolean }
+  ) => Promise<{ results: BenchmarkResult[]; aggregate: BenchmarkAggregate }>;
+};
+const mockedBenchmark = benchmark as jest.Mocked<BenchmarkWithConcurrency>;
 
 // Mock axios
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+const TEST_PROMPT_ID = benchmark.TEST_PROMPTS[0].id;
+
+const ENV_KEYS = ['OLLAMA_API_URL', 'CI_LLM_BASE_URL', 'CI_LLM_API_KEY', 'BENCH_TRANSPORT'] as const;
+const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
+
+/** Build a POST request whose body is delivered through the 'data'/'end' events. */
+function postRequest(url: string, body: unknown): http.IncomingMessage {
+  const handlers: Record<string, (chunk?: unknown) => void> = {};
+  const req = {
+    method: 'POST',
+    url,
+    on: jest.fn((event: string, handler: (chunk?: unknown) => void) => {
+      handlers[event] = handler;
+      if (event === 'end') {
+        handlers['data'](Buffer.from(JSON.stringify(body)));
+        handlers['end']();
+      }
+      return req;
+    })
+  } as unknown as http.IncomingMessage;
+  return req;
+}
+
+function makeResult(overrides: Partial<BenchmarkResult> & Record<string, unknown> = {}): BenchmarkResult {
+  return {
+    model: 'llama2',
+    tokensPerSecond: 40,
+    totalTokens: 80,
+    durationSeconds: 2,
+    timestamp: '2026-09-20T10:00:00.000Z',
+    success: true,
+    ...overrides
+  };
+}
+
+function makeAggregate(overrides: Partial<BenchmarkAggregate> = {}): BenchmarkAggregate {
+  return {
+    batchId: 'batch-1',
+    model: 'llama2',
+    concurrency: 1,
+    wallSeconds: 2,
+    aggregateTokensPerSecond: 40,
+    servedByCounts: {},
+    backendCounts: {},
+    successes: 1,
+    failures: 0,
+    ...overrides
+  };
+}
+
 describe('Server Module', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.spyOn(console, 'log').mockImplementation(() => {});
+    for (const key of ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    resetTargetState();
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedEnv[key];
+      }
+    }
   });
 
   describe('HTTP Server', () => {
@@ -700,6 +790,364 @@ describe('Server Module', () => {
         } as unknown as http.ServerResponse;
 
         server.emit('request', req, res);
+      });
+    });
+  });
+
+  describe('Target resolution helpers', () => {
+    it('normalises trailing slashes and a trailing /v1', () => {
+      expect(normaliseBaseUrl('http://host:8000/v1')).toBe('http://host:8000');
+      expect(normaliseBaseUrl('http://host:8000/v1/')).toBe('http://host:8000');
+      expect(normaliseBaseUrl('http://host:8000/')).toBe('http://host:8000');
+      expect(normaliseBaseUrl('  http://host:11434  ')).toBe('http://host:11434');
+      expect(normaliseBaseUrl('http://hub:5002/api/inference/pool/')).toBe('http://hub:5002/api/inference/pool');
+    });
+
+    it('defaults to a local Ollama', () => {
+      expect(getTargetUrl()).toBe('http://localhost:11434');
+      expect(getTargetPath(getTargetUrl())).toBe('direct');
+    });
+
+    it('uses CI_LLM_BASE_URL when OLLAMA_API_URL is unset', () => {
+      process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
+      expect(getTargetUrl()).toBe('http://strix:8000');
+    });
+
+    it('lets an explicit OLLAMA_API_URL win over CI_LLM_BASE_URL', () => {
+      process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
+      process.env.OLLAMA_API_URL = 'http://100.115.174.32:5002/api/inference/pool';
+      expect(getTargetUrl()).toBe('http://100.115.174.32:5002/api/inference/pool');
+      expect(getTargetPath(getTargetUrl())).toBe('pool');
+    });
+  });
+
+  describe('GET /api/target', () => {
+    function getTarget(done: () => void, assert: (body: any) => void): void {
+      const req = { method: 'GET', url: '/api/target' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          assert(JSON.parse(data));
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    }
+
+    it('reports a direct Ollama target with no pool block', (done) => {
+      mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
+      getTarget(done, (body) => {
+        expect(body).toEqual({
+          url: 'http://localhost:11434',
+          transport: 'ollama',
+          path: 'direct',
+          pool: null
+        });
+        expect(mockedAxios.get).toHaveBeenCalledWith('http://localhost:11434/api/tags', expect.objectContaining({ headers: {} }));
+      });
+    });
+
+    it('reports a pool proxy target and whether the pool has answered yet', (done) => {
+      process.env.OLLAMA_API_URL = 'http://100.115.174.32:5002/api/inference/pool';
+      mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
+      getTarget(done, (body) => {
+        expect(body.path).toBe('pool');
+        expect(body.transport).toBe('ollama');
+        expect(body.pool).toEqual({ servedByHeaderSeen: false });
+      });
+    });
+
+    it('marks the served-by header as seen once a probe response carries it', (done) => {
+      process.env.OLLAMA_API_URL = 'http://hub:5002/api/inference/pool';
+      mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: { 'x-hub-pool-served-by': 'local' } });
+      getTarget(done, (body) => {
+        expect(body.pool).toEqual({ servedByHeaderSeen: true });
+      });
+    });
+
+    it('falls back to the openai transport when /api/tags is not there', (done) => {
+      process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
+      mockedAxios.get.mockRejectedValue(new Error('404'));
+      getTarget(done, (body) => {
+        expect(body).toEqual({ url: 'http://strix:8000', transport: 'openai', path: 'direct', pool: null });
+      });
+    });
+
+    it('honours BENCH_TRANSPORT without probing', (done) => {
+      process.env.BENCH_TRANSPORT = 'openai';
+      getTarget(done, (body) => {
+        expect(body.transport).toBe('openai');
+        expect(mockedAxios.get).not.toHaveBeenCalled();
+      });
+    });
+
+    it('sends the CI_LLM_API_KEY as a bearer token on the probe', (done) => {
+      process.env.CI_LLM_API_KEY = 'secret-key';
+      mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
+      getTarget(done, () => {
+        expect(mockedAxios.get).toHaveBeenCalledWith(
+          'http://localhost:11434/api/tags',
+          expect.objectContaining({ headers: { Authorization: 'Bearer secret-key' } })
+        );
+      });
+    });
+
+    it('probes the transport once and caches it per base URL', (done) => {
+      mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
+      getTarget(() => {
+        getTarget(done, () => {
+          expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+        });
+      }, () => {});
+    });
+  });
+
+  describe('GET /api/models against non-Ollama targets', () => {
+    it('lists models from /v1/models when /api/tags is not served', (done) => {
+      process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
+      process.env.CI_LLM_API_KEY = 'secret-key';
+      mockedAxios.get.mockImplementation(async (url: string) => {
+        if (url === 'http://strix:8000/api/tags') {
+          throw new Error('404');
+        }
+        if (url === 'http://strix:8000/v1/models') {
+          return { data: { data: [{ id: 'qwen3:8b', object: 'model' }, { id: 'Qwen/Qwen3-32B-AWQ', object: 'model' }] }, headers: {} };
+        }
+        throw new Error(`unexpected url ${url}`);
+      });
+
+      const req = { method: 'GET', url: '/api/models' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          expect(mockedAxios.get).toHaveBeenCalledWith(
+            'http://strix:8000/v1/models',
+            expect.objectContaining({ headers: { Authorization: 'Bearer secret-key' } })
+          );
+          const models = JSON.parse(data);
+          expect(models.find((m: any) => m.name === 'qwen3:8b')).toMatchObject({ installed: true, supported: true });
+          expect(models.find((m: any) => m.name === 'Qwen/Qwen3-32B-AWQ')).toMatchObject({ installed: true, supported: false, source: 'installed' });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+
+    it('falls back to the catalog with 503 when neither protocol answers', (done) => {
+      process.env.CI_LLM_BASE_URL = 'http://strix:8000';
+      mockedAxios.get.mockRejectedValue(new Error('Connection refused'));
+
+      const req = { method: 'GET', url: '/api/models' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(503, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          expect(mockedAxios.get).toHaveBeenCalledWith('http://strix:8000/api/tags', expect.anything());
+          expect(mockedAxios.get).toHaveBeenCalledWith('http://strix:8000/v1/models', expect.anything());
+          expect(JSON.parse(data).every((m: any) => m.installed === false)).toBe(true);
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+  });
+
+  describe('GET /api/aggregates', () => {
+    it('returns recent aggregates and forwards the limit', (done) => {
+      const rows = [makeAggregate({ batchId: 'b1' }), makeAggregate({ batchId: 'b2', concurrency: 4 })];
+      mockedDatabase.getBenchmarkAggregates.mockReturnValue(rows);
+
+      const req = { method: 'GET', url: '/api/aggregates?limit=25' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(mockedDatabase.getBenchmarkAggregates).toHaveBeenCalledWith(25);
+          expect(res.writeHead).toHaveBeenCalledWith(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          });
+          expect(JSON.parse(data)).toEqual(rows);
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+
+    it('ignores a non-numeric limit', (done) => {
+      mockedDatabase.getBenchmarkAggregates.mockReturnValue([]);
+      const req = { method: 'GET', url: '/api/aggregates?limit=abc' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          expect(mockedDatabase.getBenchmarkAggregates).toHaveBeenCalledWith(undefined);
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+
+    it('returns 500 when the table cannot be read', (done) => {
+      mockedDatabase.getBenchmarkAggregates.mockImplementation(() => {
+        throw new Error('no such table');
+      });
+      const req = { method: 'GET', url: '/api/aggregates' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          expect(res.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'application/json' });
+          expect(JSON.parse(data)).toEqual({ error: 'Failed to fetch aggregates' });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+  });
+
+  describe('POST /api/run-benchmark', () => {
+    function runBenchmark(body: unknown, done: () => void, assert: (status: number, headers: unknown, body: any) => void): void {
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data) => {
+          const [status, headers] = res.writeHead.mock.calls[0];
+          assert(status, headers, JSON.parse(data));
+          done();
+        })
+      } as unknown as http.ServerResponse & { writeHead: jest.Mock };
+      server.emit('request', postRequest('/api/run-benchmark', body), res);
+    }
+
+    it('answers the CORS preflight as before', (done) => {
+      const req = { method: 'OPTIONS', url: '/api/run-benchmark' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          expect(res.writeHead).toHaveBeenCalledWith(200, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+          });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+
+    it('runs a single-model batch with concurrency 1 and streaming by default', (done) => {
+      const rows = [makeResult()];
+      const aggregate = makeAggregate();
+      mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({ results: rows, aggregate });
+      mockedDatabase.getLatestSystemSpecs.mockReturnValue({ id: 7 } as any);
+
+      runBenchmark({ models: ['llama2'], promptId: TEST_PROMPT_ID }, done, (status, headers, body) => {
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledTimes(1);
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith(
+          'llama2',
+          expect.any(String),
+          { concurrency: 1, stream: true }
+        );
+        expect(mockedBenchmark.saveResultsToCSV).toHaveBeenCalledWith(rows);
+        expect(mockedBenchmark.saveResultsToDatabase).toHaveBeenCalledWith(rows);
+        expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledWith(aggregate, 7);
+        expect(status).toBe(200);
+        expect(headers).toEqual({ 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        expect(body).toEqual({ success: true, results: rows, aggregates: [aggregate] });
+      });
+    });
+
+    it('passes concurrency and stream through and returns one aggregate per model', (done) => {
+      mockedBenchmark.benchmarkModelConcurrently.mockImplementation(async (model, _prompt, options) => ({
+        results: Array.from({ length: options.concurrency }, (_, i) => makeResult({ model, batchId: `${model}-batch`, concurrency: options.concurrency, servedBy: i % 2 ? 'peer-a' : 'local' })),
+        aggregate: makeAggregate({ model, batchId: `${model}-batch`, concurrency: options.concurrency })
+      }));
+      mockedDatabase.getLatestSystemSpecs.mockReturnValue(null);
+
+      runBenchmark({ models: ['llama2', 'qwen3:8b'], customPrompt: '  hello  ', concurrency: 4, stream: false }, done, (status, _headers, body) => {
+        expect(status).toBe(200);
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(1, 'llama2', 'hello', { concurrency: 4, stream: false });
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', { concurrency: 4, stream: false });
+        expect(body.results).toHaveLength(8);
+        expect(body.aggregates.map((a: BenchmarkAggregate) => a.model)).toEqual(['llama2', 'qwen3:8b']);
+        expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledTimes(2);
+        expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledWith(expect.objectContaining({ model: 'qwen3:8b' }), undefined);
+        // Everything went to the database in one call, so specs are shared.
+        expect(mockedBenchmark.saveResultsToDatabase).toHaveBeenCalledTimes(1);
+        expect(mockedBenchmark.saveResultsToDatabase.mock.calls[0][0]).toHaveLength(8);
+      });
+    });
+
+    it('flips /api/target pool.servedByHeaderSeen once a row carries servedBy', (done) => {
+      mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({
+        results: [makeResult({ servedBy: 'peer-a', backend: 'ollama' })],
+        aggregate: makeAggregate({ servedByCounts: { 'peer-a': 1 } })
+      });
+      mockedDatabase.getLatestSystemSpecs.mockReturnValue(null);
+      mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
+
+      runBenchmark({ models: ['llama2'] }, () => {
+        const req = { method: 'GET', url: '/api/target' } as http.IncomingMessage;
+        const res = {
+          writeHead: jest.fn(),
+          end: jest.fn((data) => {
+            // URL still looks direct, but the pool has demonstrably answered.
+            expect(JSON.parse(data)).toMatchObject({ path: 'direct', pool: { servedByHeaderSeen: true } });
+            done();
+          })
+        } as unknown as http.ServerResponse;
+        server.emit('request', req, res);
+      }, (status) => {
+        expect(status).toBe(200);
+      });
+    });
+
+    it.each([0, 17, 1.5, 'four'])('rejects concurrency %p with 400', (concurrency, done) => {
+      runBenchmark({ models: ['llama2'], concurrency }, done as () => void, (status, _headers, body) => {
+        expect(status).toBe(400);
+        expect(body.error).toMatch(/Invalid concurrency/);
+        expect(mockedBenchmark.benchmarkModelConcurrently).not.toHaveBeenCalled();
+      });
+    });
+
+    it('accepts concurrency at the 16 ceiling', (done) => {
+      mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({ results: [], aggregate: makeAggregate({ concurrency: 16 }) });
+      mockedDatabase.getLatestSystemSpecs.mockReturnValue(null);
+      runBenchmark({ models: ['llama2'], concurrency: 16 }, done, (status) => {
+        expect(status).toBe(200);
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith('llama2', undefined, { concurrency: 16, stream: true });
+      });
+    });
+
+    it('rejects an empty model list', (done) => {
+      runBenchmark({ models: [] }, done, (status, _headers, body) => {
+        expect(status).toBe(400);
+        expect(body).toEqual({ error: 'No models specified' });
+      });
+    });
+
+    it('rejects an unknown prompt id', (done) => {
+      runBenchmark({ models: ['llama2'], promptId: 'nope' }, done, (status, _headers, body) => {
+        expect(status).toBe(400);
+        expect(body.error).toContain('Invalid prompt ID: nope');
+      });
+    });
+
+    it('returns 500 when the runner throws', (done) => {
+      mockedBenchmark.benchmarkModelConcurrently.mockRejectedValue(new Error('pool 502: no candidate'));
+      runBenchmark({ models: ['llama2'] }, done, (status, headers, body) => {
+        expect(status).toBe(500);
+        expect(headers).toEqual({ 'Content-Type': 'application/json' });
+        expect(body.error).toBe('Failed to run benchmark: pool 502: no candidate');
+        expect(mockedDatabase.saveBenchmarkAggregate).not.toHaveBeenCalled();
       });
     });
   });
