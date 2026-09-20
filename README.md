@@ -108,14 +108,14 @@ OLLAMA_API_URL=http://100.115.174.32:5002/api/inference/pool node dist/benchmark
 OLLAMA_API_URL=http://100.115.174.32:5002/api/inference/pool npm start
 ```
 
-Inside a Hub-installed app you do not need to set anything. The Hub writes `CI_LLM_BASE_URL` (and `CI_LLM_API_KEY` when the pool needs one) into every app's environment, and Local-Bench reads those when `OLLAMA_API_URL` is unset.
+Inside a Hub-installed app you do not need to set anything once the marketplace manifest maps the Hub's resolved inference endpoint onto these variables (`APP_OLLAMA_URL` → `OLLAMA_API_URL`, `APP_OPENAI_BASE_URL` → `CI_LLM_BASE_URL`, `APP_OPENAI_API_KEY` → `CI_LLM_API_KEY`; see `CI-Marketplace/apps/ci-local-bench/docker-compose.json`). `OLLAMA_API_URL` wins whenever it is non-empty, so an Ollama-backed Hub benchmarks through its pool with native timings and a vLLM/Lemonade-backed Hub falls through to the OpenAI transport.
 
 ### Environment
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
 | `OLLAMA_API_URL` | Ollama-native base URL. May be a pool proxy. Wins when set. | `http://localhost:11434` |
-| `CI_LLM_BASE_URL` | OpenAI-compatible base URL, with or without a trailing `/v1`. Used when `OLLAMA_API_URL` is unset. This is what CI-Hub injects into app containers. | unset |
+| `CI_LLM_BASE_URL` | OpenAI-compatible base URL, with or without a trailing `/v1`. Used when `OLLAMA_API_URL` is unset or empty. | unset |
 | `CI_LLM_API_KEY` | Sent as `Authorization: Bearer` on every request when set. | unset |
 | `BENCH_TRANSPORT` | Force `ollama` or `openai`. Otherwise the tool probes `GET {base}/api/tags` once: answers means Ollama-native, anything else means OpenAI-compatible. | auto |
 | `PORT` | Dashboard port. | `3000` |

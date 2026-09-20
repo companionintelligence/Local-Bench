@@ -757,6 +757,25 @@ describe('Benchmark Module', () => {
       expect(await detectTransport('http://vllm:8000')).toBe('openai');
     });
 
+    it('caches openai only when the server actually answered — a 404 is an answer', async () => {
+      mockedAxios.isAxiosError.mockImplementation((e: unknown) => Boolean((e as { isAxiosError?: boolean })?.isAxiosError));
+      mockedAxios.get.mockRejectedValue({ isAxiosError: true, response: { status: 404 } });
+      expect(await detectTransport('http://vllm:8000')).toBe('openai');
+      expect(await detectTransport('http://vllm:8000')).toBe('openai');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not pin a target that was merely down: a refused probe is retried on the next call', async () => {
+      // The dashboard container routinely starts before its engine. Caching that first
+      // ECONNREFUSED as "openai" sent every later run to /v1/chat/completions on an Ollama.
+      mockedAxios.isAxiosError.mockImplementation((e: unknown) => Boolean((e as { isAxiosError?: boolean })?.isAxiosError));
+      mockedAxios.get.mockRejectedValueOnce({ isAxiosError: true, code: 'ECONNREFUSED' });
+      expect(await detectTransport('http://a:11434')).toBe('openai');
+      mockedAxios.get.mockResolvedValue({ data: { models: [] } });
+      expect(await detectTransport('http://a:11434')).toBe('ollama');
+      expect(mockedAxios.get).toHaveBeenCalledTimes(2);
+    });
+
     it('lets BENCH_TRANSPORT force the transport without probing', async () => {
       process.env.BENCH_TRANSPORT = 'openai';
       mockedAxios.get.mockResolvedValue({ data: { models: [] } });

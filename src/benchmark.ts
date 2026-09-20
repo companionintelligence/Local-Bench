@@ -489,8 +489,15 @@ export async function detectTransport(url: string): Promise<Transport> {
   try {
     await axios.get(`${url}/api/tags`, { timeout: PROBE_TIMEOUT_MS, headers: authHeaders() });
     transport = 'ollama';
-  } catch {
+  } catch (error) {
     transport = 'openai';
+    // Only an HTTP answer says anything about the server ("no /api/tags here" → OpenAI). A
+    // connection refusal or timeout says the target was not up yet — the dashboard container
+    // routinely starts before its engine — and caching that would pin every later run to the
+    // wrong protocol until a restart. Probe again next time instead.
+    if (!axios.isAxiosError(error) || !error.response) {
+      return transport;
+    }
   }
   transportCache.set(url, transport);
   return transport;
