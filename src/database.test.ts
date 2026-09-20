@@ -9,11 +9,85 @@ import {
   getBenchmarkResultsByModel,
   getAllSystemSpecs,
   getDatabase,
-  BenchmarkResult
+  saveBenchmarkAggregate,
+  getRecentAggregates,
+  BenchmarkResultRecord
 } from './database';
+import { BenchmarkAggregate } from './benchmark';
 import { SystemSpecs } from './systemSpecs';
+import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
 import * as path from 'path';
+
+/** The benchmark_results schema as it shipped before the pool columns existed. */
+const OLD_SCHEMA = `
+  CREATE TABLE system_specs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_name TEXT NOT NULL,
+    cpu_model TEXT NOT NULL,
+    cpu_cores INTEGER NOT NULL,
+    cpu_threads INTEGER NOT NULL,
+    total_memory_gb REAL NOT NULL,
+    os_type TEXT NOT NULL,
+    os_version TEXT NOT NULL,
+    motherboard TEXT,
+    gpus TEXT NOT NULL,
+    strix_halo TEXT,
+    timestamp TEXT NOT NULL
+  );
+  CREATE TABLE benchmark_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model TEXT NOT NULL,
+    tokens_per_second REAL NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    duration_seconds REAL NOT NULL,
+    timestamp TEXT NOT NULL,
+    success INTEGER NOT NULL,
+    error TEXT,
+    system_specs_id INTEGER,
+    FOREIGN KEY (system_specs_id) REFERENCES system_specs(id)
+  );
+  CREATE INDEX idx_benchmark_timestamp ON benchmark_results(timestamp);
+  CREATE INDEX idx_benchmark_model ON benchmark_results(model);
+  CREATE INDEX idx_system_specs_timestamp ON system_specs(timestamp);
+`;
+
+const NEW_RESULT_COLUMNS = [
+  'transport', 'path', 'target_url', 'served_by', 'backend', 'request_id',
+  'ttft_ms', 'prompt_tokens', 'load_ms', 'prompt_eval_ms', 'eval_ms',
+  'decode_tokens_per_second', 'concurrency', 'batch_id'
+];
+
+function columnNames(db: DatabaseSync, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(c => c.name);
+}
+
+/** A fully-populated pool row, as benchmarkModel would produce for a streamed pool request. */
+function fullPoolResult(overrides: Partial<BenchmarkResultRecord> = {}): BenchmarkResultRecord {
+  return {
+    model: 'qwen3:8b',
+    tokensPerSecond: 40.2,
+    totalTokens: 201,
+    durationSeconds: 5.0,
+    timestamp: '2026-09-20T10:00:00.000Z',
+    success: true,
+    transport: 'ollama',
+    path: 'pool',
+    targetUrl: 'http://100.115.174.32:5002/api/inference/pool',
+    servedBy: 'beta-max',
+    backend: 'ollama',
+    requestId: 'req-abc123',
+    ttftMs: 312.5,
+    promptTokens: 27,
+    loadMs: 1200.25,
+    promptEvalMs: 80.5,
+    evalMs: 3900.75,
+    decodeTokensPerSecond: 51.5,
+    concurrency: 4,
+    batchId: 'batch-0001',
+    ...overrides
+  };
+}
 
 describe('Database Module', () => {
   const testDbPath = path.join(__dirname, '..', 'benchmark_data.db');
@@ -102,7 +176,7 @@ describe('Database Module', () => {
     it('should save benchmark results', () => {
       initDatabase();
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -140,7 +214,7 @@ describe('Database Module', () => {
       
       const systemSpecsId = saveSystemSpecs(specs);
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -157,7 +231,7 @@ describe('Database Module', () => {
     it('should save failed benchmark results', () => {
       initDatabase();
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'failed-model',
           tokensPerSecond: 0,
@@ -185,7 +259,7 @@ describe('Database Module', () => {
     it('should return all benchmark results', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -276,7 +350,7 @@ describe('Database Module', () => {
       
       const systemSpecsId = saveSystemSpecs(specs);
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -300,7 +374,7 @@ describe('Database Module', () => {
     it('should limit results when specified', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'model1',
           tokensPerSecond: 45.5,
@@ -339,7 +413,7 @@ describe('Database Module', () => {
     it('should return results for specific model', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -378,7 +452,7 @@ describe('Database Module', () => {
     it('should return empty array for unknown model', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -524,7 +598,7 @@ describe('Database Module', () => {
     it('should handle results without system specs', () => {
       initDatabase();
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -542,6 +616,347 @@ describe('Database Module', () => {
       
       expect(resultsWithSpecs.length).toBe(1);
       expect(resultsWithSpecs[0].systemSpecs).toBeUndefined();
+    });
+  });
+
+  describe('schema migration', () => {
+    it('should add the pool columns to a pre-change database file and keep its rows', () => {
+      // Build the database exactly as the old code would have, with one row.
+      const old = new DatabaseSync(testDbPath);
+      old.exec(OLD_SCHEMA);
+      old.prepare(`
+        INSERT INTO benchmark_results (
+          model, tokens_per_second, total_tokens, duration_seconds, timestamp, success, error, system_specs_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run('llama2', 45.5, 100, 2.2, '2026-01-01T00:00:00.000Z', 1, null, null);
+      expect(columnNames(old, 'benchmark_results')).not.toContain('transport');
+      old.close();
+
+      const db = initDatabase();
+
+      const cols = columnNames(db, 'benchmark_results');
+      for (const col of NEW_RESULT_COLUMNS) {
+        expect(cols).toContain(col);
+      }
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((t: any) => t.name);
+      expect(tables).toContain('benchmark_aggregates');
+
+      // The pre-migration row survives and reads back with nulls for the new fields.
+      const results = getAllBenchmarkResults();
+      expect(results.length).toBe(1);
+      expect(results[0].model).toBe('llama2');
+      expect(results[0].tokensPerSecond).toBe(45.5);
+      expect(results[0].success).toBe(true);
+      expect(results[0].transport).toBeNull();
+      expect(results[0].servedBy).toBeNull();
+      expect(results[0].ttftMs).toBeNull();
+      expect(results[0].concurrency).toBeNull();
+      expect(results[0].batchId).toBeNull();
+
+      // And new-style rows can be written into the migrated table.
+      saveBenchmarkResults([fullPoolResult()]);
+      expect(getAllBenchmarkResults().length).toBe(2);
+    });
+
+    it('should be idempotent across re-opens', () => {
+      const old = new DatabaseSync(testDbPath);
+      old.exec(OLD_SCHEMA);
+      old.close();
+
+      initDatabase();
+      const firstCols = columnNames(getDatabase(), 'benchmark_results');
+      closeDatabase();
+
+      expect(() => initDatabase()).not.toThrow();
+      const secondCols = columnNames(getDatabase(), 'benchmark_results');
+      expect(secondCols).toEqual(firstCols);
+      closeDatabase();
+
+      expect(() => initDatabase()).not.toThrow();
+      expect(columnNames(getDatabase(), 'benchmark_results')).toEqual(firstCols);
+    });
+
+    it('should give a fresh database the same result columns as a migrated one', () => {
+      initDatabase();
+      const fresh = columnNames(getDatabase(), 'benchmark_results');
+      closeDatabase();
+      fs.unlinkSync(testDbPath);
+
+      const old = new DatabaseSync(testDbPath);
+      old.exec(OLD_SCHEMA);
+      old.close();
+      initDatabase();
+      const migrated = columnNames(getDatabase(), 'benchmark_results');
+
+      expect(migrated).toEqual(fresh);
+    });
+
+    it('should create the batch_id and aggregates indexes', () => {
+      const db = initDatabase();
+      const indexNames = db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map((i: any) => i.name);
+      expect(indexNames).toContain('idx_benchmark_batch_id');
+      expect(indexNames).toContain('idx_benchmark_aggregates_timestamp');
+    });
+  });
+
+  describe('pool fields on benchmark results', () => {
+    it('should round-trip every new field through getAllBenchmarkResults', () => {
+      initDatabase();
+      const row = fullPoolResult();
+      saveBenchmarkResults([row]);
+
+      const [read] = getAllBenchmarkResults();
+      expect(read.transport).toBe('ollama');
+      expect(read.path).toBe('pool');
+      expect(read.targetUrl).toBe('http://100.115.174.32:5002/api/inference/pool');
+      expect(read.servedBy).toBe('beta-max');
+      expect(read.backend).toBe('ollama');
+      expect(read.requestId).toBe('req-abc123');
+      expect(read.ttftMs).toBe(312.5);
+      expect(read.promptTokens).toBe(27);
+      expect(read.loadMs).toBe(1200.25);
+      expect(read.promptEvalMs).toBe(80.5);
+      expect(read.evalMs).toBe(3900.75);
+      expect(read.decodeTokensPerSecond).toBe(51.5);
+      expect(read.concurrency).toBe(4);
+      expect(read.batchId).toBe('batch-0001');
+      // Existing fields untouched.
+      expect(read.tokensPerSecond).toBe(40.2);
+      expect(read.totalTokens).toBe(201);
+      expect(read.durationSeconds).toBe(5.0);
+      expect(read.success).toBe(true);
+    });
+
+    it('should round-trip an openai/direct row through getBenchmarkResultsByModel', () => {
+      initDatabase();
+      saveBenchmarkResults([
+        fullPoolResult({
+          model: 'vllm-model',
+          transport: 'openai',
+          path: 'direct',
+          targetUrl: 'http://host:8000/v1',
+          servedBy: undefined,
+          backend: undefined,
+          requestId: undefined,
+          loadMs: undefined,
+          promptEvalMs: undefined,
+          evalMs: undefined,
+          concurrency: 1,
+          batchId: 'batch-single'
+        })
+      ]);
+
+      const [read] = getBenchmarkResultsByModel('vllm-model');
+      expect(read.transport).toBe('openai');
+      expect(read.path).toBe('direct');
+      expect(read.targetUrl).toBe('http://host:8000/v1');
+      expect(read.servedBy).toBeNull();
+      expect(read.backend).toBeNull();
+      expect(read.requestId).toBeNull();
+      expect(read.loadMs).toBeNull();
+      expect(read.promptEvalMs).toBeNull();
+      expect(read.evalMs).toBeNull();
+      expect(read.ttftMs).toBe(312.5);
+      expect(read.decodeTokensPerSecond).toBe(51.5);
+      expect(read.concurrency).toBe(1);
+    });
+
+    it('should return the new fields alongside system specs', () => {
+      initDatabase();
+      const specs: SystemSpecs = {
+        serverName: 'pool-hub',
+        cpuModel: 'Test CPU',
+        cpuCores: 8,
+        cpuThreads: 16,
+        totalMemoryGB: 32,
+        osType: 'linux',
+        osVersion: 'Ubuntu 24.04',
+        gpus: [{ model: 'Test GPU' }]
+      };
+      const systemSpecsId = saveSystemSpecs(specs);
+      saveBenchmarkResults([fullPoolResult()], systemSpecsId);
+
+      const [read] = getBenchmarkResultsWithSpecs();
+      expect(read.systemSpecs?.serverName).toBe('pool-hub');
+      expect(read.servedBy).toBe('beta-max');
+      expect(read.backend).toBe('ollama');
+      expect(read.path).toBe('pool');
+      expect(read.transport).toBe('ollama');
+      expect(read.ttftMs).toBe(312.5);
+      expect(read.decodeTokensPerSecond).toBe(51.5);
+      expect(read.batchId).toBe('batch-0001');
+      expect(read.concurrency).toBe(4);
+    });
+
+    it('should write null for every new field when a legacy-shaped row is saved', () => {
+      initDatabase();
+      saveBenchmarkResults([
+        {
+          model: 'llama2',
+          tokensPerSecond: 45.5,
+          totalTokens: 100,
+          durationSeconds: 2.2,
+          timestamp: new Date().toISOString(),
+          success: true
+        }
+      ]);
+
+      const [read] = getAllBenchmarkResults();
+      expect(read.transport).toBeNull();
+      expect(read.path).toBeNull();
+      expect(read.targetUrl).toBeNull();
+      expect(read.servedBy).toBeNull();
+      expect(read.backend).toBeNull();
+      expect(read.requestId).toBeNull();
+      expect(read.ttftMs).toBeNull();
+      expect(read.promptTokens).toBeNull();
+      expect(read.loadMs).toBeNull();
+      expect(read.promptEvalMs).toBeNull();
+      expect(read.evalMs).toBeNull();
+      expect(read.decodeTokensPerSecond).toBeNull();
+      expect(read.concurrency).toBeNull();
+      expect(read.batchId).toBeNull();
+
+      const [withSpecs] = getBenchmarkResultsWithSpecs();
+      expect(withSpecs.transport).toBeNull();
+      expect(withSpecs.batchId).toBeNull();
+    });
+
+    it('should store NaN numeric fields as null rather than failing', () => {
+      initDatabase();
+      saveBenchmarkResults([fullPoolResult({ ttftMs: NaN, decodeTokensPerSecond: NaN })]);
+      const [read] = getAllBenchmarkResults();
+      expect(read.ttftMs).toBeNull();
+      expect(read.decodeTokensPerSecond).toBeNull();
+    });
+  });
+
+  describe('benchmark aggregates', () => {
+    const aggregate = (overrides: Partial<BenchmarkAggregate> = {}): BenchmarkAggregate => ({
+      batchId: 'batch-0001',
+      model: 'qwen3:8b',
+      concurrency: 4,
+      wallSeconds: 6.5,
+      aggregateTokensPerSecond: 123.4,
+      medianTtftMs: 300.5,
+      medianDecodeTokensPerSecond: 48.25,
+      servedByCounts: { local: 1, 'beta-max': 3 },
+      backendCounts: { ollama: 3, vllm: 1 },
+      successes: 4,
+      failures: 0,
+      ...overrides
+    });
+
+    it('should insert an aggregate and return its id', () => {
+      initDatabase();
+      const id = saveBenchmarkAggregate(aggregate());
+      expect(id).toBeGreaterThan(0);
+    });
+
+    it('should round-trip every field including the JSON count columns', () => {
+      initDatabase();
+      const specs: SystemSpecs = {
+        serverName: 'pool-hub',
+        cpuModel: 'Test CPU',
+        cpuCores: 8,
+        cpuThreads: 16,
+        totalMemoryGB: 32,
+        osType: 'linux',
+        osVersion: 'Ubuntu 24.04',
+        gpus: [{ model: 'Test GPU' }]
+      };
+      const systemSpecsId = saveSystemSpecs(specs);
+      const id = saveBenchmarkAggregate(aggregate(), systemSpecsId);
+
+      const [read] = getRecentAggregates();
+      expect(read.id).toBe(id);
+      expect(read.batchId).toBe('batch-0001');
+      expect(read.model).toBe('qwen3:8b');
+      expect(read.concurrency).toBe(4);
+      expect(read.wallSeconds).toBe(6.5);
+      expect(read.aggregateTokensPerSecond).toBe(123.4);
+      expect(read.medianTtftMs).toBe(300.5);
+      expect(read.medianDecodeTokensPerSecond).toBe(48.25);
+      expect(read.servedByCounts).toEqual({ local: 1, 'beta-max': 3 });
+      expect(read.backendCounts).toEqual({ ollama: 3, vllm: 1 });
+      expect(read.successes).toBe(4);
+      expect(read.failures).toBe(0);
+      expect(read.systemSpecsId).toBe(systemSpecsId);
+      expect(typeof read.timestamp).toBe('string');
+      expect(Number.isNaN(Date.parse(read.timestamp))).toBe(false);
+    });
+
+    it('should store absent medians as null and read them back as undefined', () => {
+      initDatabase();
+      saveBenchmarkAggregate(aggregate({ medianTtftMs: undefined, medianDecodeTokensPerSecond: undefined, servedByCounts: {}, backendCounts: {} }));
+
+      const raw = getDatabase().prepare('SELECT median_ttft_ms, median_decode_tokens_per_second, served_by_counts FROM benchmark_aggregates').get() as any;
+      expect(raw.median_ttft_ms).toBeNull();
+      expect(raw.median_decode_tokens_per_second).toBeNull();
+      expect(raw.served_by_counts).toBe('{}');
+
+      const [read] = getRecentAggregates();
+      expect(read.medianTtftMs).toBeUndefined();
+      expect(read.medianDecodeTokensPerSecond).toBeUndefined();
+      expect(read.servedByCounts).toEqual({});
+      expect(read.backendCounts).toEqual({});
+      expect(read.systemSpecsId).toBeUndefined();
+    });
+
+    it('should list aggregates newest first and honour the limit', () => {
+      initDatabase();
+      // Insert with explicit, distinct timestamps so ordering is deterministic
+      // regardless of how fast the inserts run.
+      for (const [i, ts] of ['2026-09-20T10:00:00.000Z', '2026-09-20T10:00:02.000Z', '2026-09-20T10:00:01.000Z'].entries()) {
+        saveBenchmarkAggregate(aggregate({ batchId: `batch-${i}` }));
+        getDatabase().prepare('UPDATE benchmark_aggregates SET timestamp = ? WHERE batch_id = ?').run(ts, `batch-${i}`);
+      }
+
+      const all = getRecentAggregates();
+      expect(all.map(a => a.batchId)).toEqual(['batch-1', 'batch-2', 'batch-0']);
+
+      const limited = getRecentAggregates(2);
+      expect(limited.map(a => a.batchId)).toEqual(['batch-1', 'batch-2']);
+
+      expect(getRecentAggregates(0).length).toBe(3);
+    });
+
+    it('should break timestamp ties by insertion order, newest first', () => {
+      initDatabase();
+      saveBenchmarkAggregate(aggregate({ batchId: 'first' }));
+      saveBenchmarkAggregate(aggregate({ batchId: 'second' }));
+      getDatabase().prepare('UPDATE benchmark_aggregates SET timestamp = ?').run('2026-09-20T10:00:00.000Z');
+
+      expect(getRecentAggregates().map(a => a.batchId)).toEqual(['second', 'first']);
+    });
+
+    it('should replace the row when the same batch_id is saved again', () => {
+      initDatabase();
+      const id1 = saveBenchmarkAggregate(aggregate({ successes: 3, failures: 1 }));
+      const id2 = saveBenchmarkAggregate(aggregate({ successes: 4, failures: 0, servedByCounts: { local: 4 } }));
+
+      expect(id2).toBe(id1);
+      const all = getRecentAggregates();
+      expect(all.length).toBe(1);
+      expect(all[0].successes).toBe(4);
+      expect(all[0].failures).toBe(0);
+      expect(all[0].servedByCounts).toEqual({ local: 4 });
+    });
+
+    it('should return an empty array when there are no aggregates', () => {
+      initDatabase();
+      expect(getRecentAggregates()).toEqual([]);
+      expect(getRecentAggregates(5)).toEqual([]);
+    });
+
+    it('should fall back to empty counts on malformed JSON', () => {
+      initDatabase();
+      saveBenchmarkAggregate(aggregate());
+      getDatabase().prepare('UPDATE benchmark_aggregates SET served_by_counts = ?').run('{not json');
+
+      const [read] = getRecentAggregates();
+      expect(read.servedByCounts).toEqual({});
+      expect(read.backendCounts).toEqual({ ollama: 3, vllm: 1 });
     });
   });
 });

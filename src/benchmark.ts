@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 import axios from 'axios';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initDatabase, saveBenchmarkResults, saveSystemSpecs, BenchmarkResult as DBBenchmarkResult } from './database';
+import { initDatabase, saveBenchmarkResults, saveBenchmarkAggregate, saveSystemSpecs } from './database';
 import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
 
 // Configuration
-const OLLAMA_API_URL = process.env.OLLAMA_API_URL || 'http://localhost:11434';
+// The target base URL is read from env at call time; see getConfiguredBaseUrl().
 const CSV_FILE = path.join(__dirname, '..', 'benchmark_results.csv');
 
 export interface BenchmarkPrompt {
@@ -294,7 +295,7 @@ export function getOllamaModelCatalog(installedModels: OllamaModel[] = []): Olla
   );
 }
 
-interface BenchmarkResult {
+export interface BenchmarkResult {
   model: string;
   tokensPerSecond: number;
   totalTokens: number;
@@ -306,6 +307,73 @@ interface BenchmarkResult {
   prompt?: string;
   /** The model's generated response text (kept for side-by-side comparison and PDF export). */
   response?: string;
+  // The fields below were added for CI-Hub pool benchmarking. They are optional so rows
+  // written before they existed still parse; benchmarkModel fills every one it can.
+  /** Which wire protocol was used. */
+  transport?: Transport;
+  /** 'pool' when the target URL contains '/inference/pool' or the response carried X-Hub-Pool-Served-By. */
+  path?: TargetPath;
+  /** The base URL that was hit. */
+  targetUrl?: string;
+  /** X-Hub-Pool-Served-By ("local" or a peer MagicDNS name). */
+  servedBy?: string;
+  /** X-Hub-Pool-Backend (ollama|vllm|lemonade|lucebox|dspark|mtplx). */
+  backend?: string;
+  /** X-Hub-Pool-Request-Id. */
+  requestId?: string;
+  /** Wall ms from request start to the first content chunk (streaming only). */
+  ttftMs?: number;
+  /** prompt_eval_count / usage.prompt_tokens. */
+  promptTokens?: number;
+  /** load_duration / 1e6 (ollama only). */
+  loadMs?: number;
+  /** prompt_eval_duration / 1e6 (ollama only). */
+  promptEvalMs?: number;
+  /** eval_duration / 1e6 (ollama only). */
+  evalMs?: number;
+  /**
+   * Engine decode speed: eval_count / (eval_duration / 1e9) when Ollama timings exist;
+   * else totalTokens / (durationSeconds - ttftMs / 1000) when streaming; else undefined.
+   * tokensPerSecond keeps meaning totalTokens / wall-clock duration.
+   */
+  decodeTokensPerSecond?: number;
+  /** How many requests ran at once in the batch this row belongs to (1 for a single run). */
+  concurrency?: number;
+  /** Shared by all rows of one concurrent batch. */
+  batchId?: string;
+}
+
+export interface BenchmarkAggregate {
+  batchId: string;
+  model: string;
+  concurrency: number;
+  wallSeconds: number;
+  /** sum totalTokens / wallSeconds */
+  aggregateTokensPerSecond: number;
+  medianTtftMs?: number;
+  medianDecodeTokensPerSecond?: number;
+  servedByCounts: Record<string, number>;
+  backendCounts: Record<string, number>;
+  successes: number;
+  failures: number;
+}
+
+export type Transport = 'ollama' | 'openai';
+export type TargetPath = 'direct' | 'pool';
+
+export interface ResolvedTarget {
+  url: string;
+  transport: Transport;
+  path: TargetPath;
+}
+
+export interface BenchmarkOptions {
+  /** Stream the response (default true). Streaming is what makes TTFT measurable. */
+  stream?: boolean;
+  /** benchmarkModel runs one request; use benchmarkModelConcurrently for a batch. */
+  concurrency?: never;
+  /** Clock for wall-time measurements; injectable for tests. Defaults to Date.now. */
+  now?: () => number;
 }
 
 interface OllamaModel {
@@ -315,8 +383,457 @@ interface OllamaModel {
 
 interface OllamaGenerateResponse {
   response?: string;
+  done?: boolean;
   eval_count?: number;
+  eval_duration?: number;
+  prompt_eval_count?: number;
+  prompt_eval_duration?: number;
+  load_duration?: number;
+  total_duration?: number;
   [key: string]: any;
+}
+
+interface OpenAIUsage {
+  completion_tokens?: number;
+  prompt_tokens?: number;
+  [key: string]: any;
+}
+
+interface OpenAIChatChunk {
+  choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string | null } }>;
+  usage?: OpenAIUsage | null;
+  [key: string]: any;
+}
+
+interface PoolHeaders {
+  servedBy?: string;
+  backend?: string;
+  requestId?: string;
+}
+
+/** What one request produced, independent of transport. */
+interface RunOutcome {
+  responseText: string;
+  totalTokens: number;
+  promptTokens?: number;
+  ttftMs?: number;
+  loadMs?: number;
+  promptEvalMs?: number;
+  evalMs?: number;
+  evalCount?: number;
+  evalDurationNs?: number;
+  headers: PoolHeaders;
+}
+
+const REQUEST_TIMEOUT_MS = 120000; // 2 minutes
+const PROBE_TIMEOUT_MS = 5000;
+const POOL_URL_MARKER = '/inference/pool';
+export const MAX_CONCURRENCY = 16;
+
+// ---------------------------------------------------------------------------
+// Target resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Strip trailing slashes and a trailing `/v1` so both `http://host:8000` and
+ * `http://host:8000/v1` (the shape CI-Hub writes into CI_LLM_BASE_URL) name the same base.
+ */
+export function normaliseBaseUrl(raw: string): string {
+  let url = raw.trim().replace(/\/+$/, '');
+  if (/\/v1$/i.test(url)) {
+    url = url.slice(0, -3).replace(/\/+$/, '');
+  }
+  return url;
+}
+
+/**
+ * The configured base URL. An explicit OLLAMA_API_URL wins (the tool's original
+ * contract), then CI_LLM_BASE_URL (what the Hub injects into every app env), then
+ * the Ollama default.
+ */
+export function getConfiguredBaseUrl(): string {
+  const raw = process.env.OLLAMA_API_URL || process.env.CI_LLM_BASE_URL || 'http://localhost:11434';
+  return normaliseBaseUrl(raw);
+}
+
+function isPoolUrl(url: string): boolean {
+  return url.includes(POOL_URL_MARKER);
+}
+
+function authHeaders(): Record<string, string> {
+  const key = process.env.CI_LLM_API_KEY;
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
+const transportCache = new Map<string, Transport>();
+
+/** Forget probed transports (tests, or after the target URL changes at runtime). */
+export function resetTargetCache(): void {
+  transportCache.clear();
+}
+
+/**
+ * 'ollama' when the base answers GET /api/tags, else 'openai'. Probed once per URL and
+ * cached; BENCH_TRANSPORT=ollama|openai forces it without probing.
+ */
+export async function detectTransport(url: string): Promise<Transport> {
+  const forced = (process.env.BENCH_TRANSPORT || '').trim().toLowerCase();
+  if (forced === 'ollama' || forced === 'openai') {
+    return forced;
+  }
+  const cached = transportCache.get(url);
+  if (cached) {
+    return cached;
+  }
+  let transport: Transport;
+  try {
+    await axios.get(`${url}/api/tags`, { timeout: PROBE_TIMEOUT_MS, headers: authHeaders() });
+    transport = 'ollama';
+  } catch (error) {
+    transport = 'openai';
+    // Only an HTTP answer says anything about the server ("no /api/tags here" → OpenAI). A
+    // connection refusal or timeout says the target was not up yet — the dashboard container
+    // routinely starts before its engine — and caching that would pin every later run to the
+    // wrong protocol until a restart. Probe again next time instead.
+    if (!axios.isAxiosError(error) || !error.response) {
+      return transport;
+    }
+  }
+  transportCache.set(url, transport);
+  return transport;
+}
+
+/** Resolve env into the target every runner hits. */
+export async function resolveTarget(): Promise<ResolvedTarget> {
+  const url = getConfiguredBaseUrl();
+  const transport = await detectTransport(url);
+  return { url, transport, path: isPoolUrl(url) ? 'pool' : 'direct' };
+}
+
+// ---------------------------------------------------------------------------
+// Wire parsing
+// ---------------------------------------------------------------------------
+
+function readHeader(headers: any, name: string): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  let value = typeof headers.get === 'function' ? headers.get(name) : undefined;
+  if (value === undefined || value === null) {
+    const wanted = name.toLowerCase();
+    const key = Object.keys(headers).find(k => k.toLowerCase() === wanted);
+    value = key === undefined ? undefined : headers[key];
+  }
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  return Array.isArray(value) ? String(value[0]) : String(value);
+}
+
+/** The X-Hub-Pool-* headers a CI-Hub pool proxy adds to every routed response. */
+export function readPoolHeaders(headers: any): PoolHeaders {
+  return {
+    servedBy: readHeader(headers, 'x-hub-pool-served-by'),
+    backend: readHeader(headers, 'x-hub-pool-backend'),
+    requestId: readHeader(headers, 'x-hub-pool-request-id')
+  };
+}
+
+/** One NDJSON line from Ollama's streaming /api/generate; null for blank or unparsable lines. */
+export function parseNdjsonLine(line: string): OllamaGenerateResponse | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === 'object' ? parsed as OllamaGenerateResponse : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One SSE line from an OpenAI-compatible stream. Only `data:` lines carry payload;
+ * `data: [DONE]` ends the stream. Returns null for comments, blank lines and junk.
+ */
+export function parseSseLine(line: string): { done: true } | { chunk: OpenAIChatChunk } | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('data:')) {
+    return null;
+  }
+  const payload = trimmed.slice(5).trim();
+  if (payload === '[DONE]') {
+    return { done: true };
+  }
+  try {
+    const parsed = JSON.parse(payload);
+    return parsed && typeof parsed === 'object' ? { chunk: parsed as OpenAIChatChunk } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Yield complete text lines from a byte stream, decoding UTF-8 across chunk boundaries. */
+async function* readLines(stream: AsyncIterable<Buffer | string>): AsyncGenerator<string> {
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  for await (const chunk of stream) {
+    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
+    let newline = buffer.indexOf('\n');
+    while (newline !== -1) {
+      yield buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+    }
+  }
+  buffer += decoder.decode();
+  if (buffer.length > 0) {
+    yield buffer;
+  }
+}
+
+function ollamaTimings(data: OllamaGenerateResponse): Partial<RunOutcome> {
+  const out: Partial<RunOutcome> = {};
+  if (typeof data.prompt_eval_count === 'number') out.promptTokens = data.prompt_eval_count;
+  if (typeof data.load_duration === 'number') out.loadMs = data.load_duration / 1e6;
+  if (typeof data.prompt_eval_duration === 'number') out.promptEvalMs = data.prompt_eval_duration / 1e6;
+  if (typeof data.eval_duration === 'number') {
+    out.evalMs = data.eval_duration / 1e6;
+    out.evalDurationNs = data.eval_duration;
+  }
+  if (typeof data.eval_count === 'number') out.evalCount = data.eval_count;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Runners
+// ---------------------------------------------------------------------------
+
+/**
+ * POST {base}/api/generate. Streaming parses NDJSON: the first line with a non-empty
+ * `response` marks TTFT, the final `done: true` line carries Ollama's native timings.
+ */
+async function runOllama(target: ResolvedTarget, model: string, prompt: string, stream: boolean, now: () => number, startedAt: number): Promise<RunOutcome> {
+  const url = `${target.url}/api/generate`;
+  const body = { model, prompt, stream };
+
+  if (!stream) {
+    const response = await axios.post<OllamaGenerateResponse>(url, body, { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders() });
+    const data = response.data || {};
+    return {
+      responseText: data.response || '',
+      totalTokens: data.eval_count || 0,
+      ...ollamaTimings(data),
+      headers: readPoolHeaders(response.headers)
+    };
+  }
+
+  const response = await axios.post(url, body, { timeout: REQUEST_TIMEOUT_MS, responseType: 'stream', headers: authHeaders() });
+  let responseText = '';
+  let ttftMs: number | undefined;
+  let finalLine: OllamaGenerateResponse = {};
+  for await (const line of readLines(response.data)) {
+    const data = parseNdjsonLine(line);
+    if (!data) continue;
+    if (data.error) {
+      throw new Error(String(data.error));
+    }
+    if (data.response) {
+      if (ttftMs === undefined) {
+        ttftMs = now() - startedAt;
+      }
+      responseText += data.response;
+    }
+    if (data.done) {
+      finalLine = data;
+    }
+  }
+  return {
+    responseText,
+    totalTokens: finalLine.eval_count || 0,
+    ttftMs,
+    ...ollamaTimings(finalLine),
+    headers: readPoolHeaders(response.headers)
+  };
+}
+
+/** True when a server answered the streaming request with a client error, i.e. rejected the body. */
+function rejectedRequestBody(error: unknown): boolean {
+  const status = (error as any)?.response?.status;
+  return status === 400 || status === 415 || status === 422;
+}
+
+/**
+ * POST {base}/v1/chat/completions. Streaming reads SSE `data:` lines: the first
+ * non-empty `delta.content` marks TTFT, and `usage` arrives in the final chunk because
+ * the request asks for `stream_options: { include_usage: true }`. When the server
+ * rejects that request (4xx), fall back to a plain non-streaming request and read
+ * `usage` from its body; TTFT is then unknown.
+ */
+async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, stream: boolean, now: () => number, startedAt: number): Promise<RunOutcome> {
+  const url = `${target.url}/v1/chat/completions`;
+  const messages = [{ role: 'user', content: prompt }];
+  const headers = { 'Content-Type': 'application/json', ...authHeaders() };
+
+  const nonStream = async (): Promise<RunOutcome> => {
+    const response = await axios.post<OpenAIChatChunk>(url, { model, messages, stream: false }, { timeout: REQUEST_TIMEOUT_MS, headers });
+    const data = response.data || {};
+    const usage = data.usage || {};
+    return {
+      responseText: data.choices?.[0]?.message?.content || '',
+      totalTokens: usage.completion_tokens || 0,
+      promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+      headers: readPoolHeaders(response.headers)
+    };
+  };
+
+  if (!stream) {
+    return nonStream();
+  }
+
+  let response;
+  try {
+    response = await axios.post(
+      url,
+      { model, messages, stream: true, stream_options: { include_usage: true } },
+      { timeout: REQUEST_TIMEOUT_MS, responseType: 'stream', headers }
+    );
+  } catch (error) {
+    if (rejectedRequestBody(error)) {
+      console.log('  ! server rejected the streaming request; retrying without streaming');
+      return nonStream();
+    }
+    throw error;
+  }
+
+  let responseText = '';
+  let ttftMs: number | undefined;
+  let usage: OpenAIUsage | undefined;
+  let contentDeltas = 0;
+  for await (const line of readLines(response.data)) {
+    const parsed = parseSseLine(line);
+    if (!parsed) continue;
+    if ('done' in parsed) break;
+    const chunk = parsed.chunk;
+    if (chunk.error) {
+      throw new Error(typeof chunk.error === 'string' ? chunk.error : (chunk.error.message || JSON.stringify(chunk.error)));
+    }
+    const content = chunk.choices?.[0]?.delta?.content;
+    if (content) {
+      if (ttftMs === undefined) {
+        ttftMs = now() - startedAt;
+      }
+      responseText += content;
+      contentDeltas++;
+    }
+    if (chunk.usage) {
+      usage = chunk.usage;
+    }
+  }
+
+  // Servers that ignore stream_options never send usage. Each content delta is one
+  // token on every engine the pool fronts (vLLM, llama.cpp-based Lemonade, Ollama), so
+  // the delta count is the honest best estimate rather than reporting zero tokens.
+  const totalTokens = typeof usage?.completion_tokens === 'number' ? usage.completion_tokens : contentDeltas;
+  return {
+    responseText,
+    totalTokens,
+    promptTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+    ttftMs,
+    headers: readPoolHeaders(response.headers)
+  };
+}
+
+function round(value: number, places: number): number {
+  return parseFloat(value.toFixed(places));
+}
+
+/**
+ * Engine decode speed. Ollama's eval timings measure generation alone; without them,
+ * subtract TTFT from the wall clock so prompt processing is not charged to decoding.
+ */
+export function computeDecodeTokensPerSecond(row: { totalTokens: number; durationSeconds: number; ttftMs?: number; evalCount?: number; evalDurationNs?: number }, streaming: boolean): number | undefined {
+  if (typeof row.evalCount === 'number' && typeof row.evalDurationNs === 'number' && row.evalDurationNs > 0) {
+    return row.evalCount / (row.evalDurationNs / 1e9);
+  }
+  if (streaming && typeof row.ttftMs === 'number') {
+    const decodeSeconds = row.durationSeconds - row.ttftMs / 1000;
+    if (decodeSeconds > 0) {
+      return row.totalTokens / decodeSeconds;
+    }
+  }
+  return undefined;
+}
+
+interface SingleRunContext {
+  target: ResolvedTarget;
+  stream: boolean;
+  now: () => number;
+  concurrency: number;
+  batchId: string;
+  quiet?: boolean;
+}
+
+async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunContext): Promise<BenchmarkResult> {
+  const { target, stream, now } = ctx;
+  const base: Pick<BenchmarkResult, 'model' | 'transport' | 'path' | 'targetUrl' | 'concurrency' | 'batchId' | 'prompt'> = {
+    model: modelName,
+    transport: target.transport,
+    path: target.path,
+    targetUrl: target.url,
+    concurrency: ctx.concurrency,
+    batchId: ctx.batchId,
+    prompt: promptToUse
+  };
+
+  try {
+    const startTime = now();
+    const outcome = target.transport === 'openai'
+      ? await runOpenAI(target, modelName, promptToUse, stream, now, startTime)
+      : await runOllama(target, modelName, promptToUse, stream, now, startTime);
+    const durationSeconds = (now() - startTime) / 1000;
+    const tokensPerSecond = durationSeconds > 0 ? outcome.totalTokens / durationSeconds : 0;
+    const decode = computeDecodeTokensPerSecond({ ...outcome, durationSeconds }, stream);
+    const path: TargetPath = target.path === 'pool' || outcome.headers.servedBy ? 'pool' : 'direct';
+
+    if (!ctx.quiet) {
+      console.log(`  ✓ ${modelName}: ${durationSeconds.toFixed(2)}s, ${outcome.totalTokens} tokens, ${tokensPerSecond.toFixed(2)} tokens/second`);
+    }
+
+    return {
+      ...base,
+      path,
+      tokensPerSecond: round(tokensPerSecond, 2),
+      totalTokens: outcome.totalTokens,
+      durationSeconds: round(durationSeconds, 2),
+      timestamp: new Date().toISOString(),
+      success: true,
+      response: outcome.responseText,
+      servedBy: outcome.headers.servedBy,
+      backend: outcome.headers.backend,
+      requestId: outcome.headers.requestId,
+      ttftMs: outcome.ttftMs === undefined ? undefined : round(outcome.ttftMs, 1),
+      promptTokens: outcome.promptTokens,
+      loadMs: outcome.loadMs === undefined ? undefined : round(outcome.loadMs, 2),
+      promptEvalMs: outcome.promptEvalMs === undefined ? undefined : round(outcome.promptEvalMs, 2),
+      evalMs: outcome.evalMs === undefined ? undefined : round(outcome.evalMs, 2),
+      decodeTokensPerSecond: decode === undefined ? undefined : round(decode, 2)
+    };
+  } catch (error) {
+    const message = (error as Error).message;
+    console.error(`  ✗ Error benchmarking ${modelName}: ${message}`);
+    return {
+      ...base,
+      tokensPerSecond: 0,
+      totalTokens: 0,
+      durationSeconds: 0,
+      timestamp: new Date().toISOString(),
+      success: false,
+      error: message,
+      response: ''
+    };
+  }
 }
 
 /**
@@ -324,7 +841,7 @@ interface OllamaGenerateResponse {
  */
 export async function checkModelAvailable(modelName: string): Promise<boolean> {
   try {
-    const response = await axios.get<{ models?: OllamaModel[] }>(`${OLLAMA_API_URL}/api/tags`);
+    const response = await axios.get<{ models?: OllamaModel[] }>(`${getConfiguredBaseUrl()}/api/tags`, { headers: authHeaders() });
     const models = response.data.models || [];
     return models.some((m: OllamaModel) => m.name.startsWith(modelName));
   } catch (error) {
@@ -336,67 +853,97 @@ export async function checkModelAvailable(modelName: string): Promise<boolean> {
 /**
  * Benchmark a single model
  */
-export async function benchmarkModel(modelName: string, customPrompt?: string): Promise<BenchmarkResult> {
+export async function benchmarkModel(modelName: string, customPrompt?: string, options: BenchmarkOptions = {}): Promise<BenchmarkResult> {
   const promptToUse = customPrompt || DEFAULT_PROMPT;
   console.log(`\nBenchmarking ${modelName}...`);
-  
-  try {
-    const startTime = Date.now();
-    let totalTokens = 0;
-    let responseText = '';
-    
-    const response = await axios.post<OllamaGenerateResponse>(
-      `${OLLAMA_API_URL}/api/generate`,
-      {
-        model: modelName,
-        prompt: promptToUse,
-        stream: false
-      },
-      {
-        timeout: 120000 // 2 minutes timeout
-      }
-    );
-    
-    const endTime = Date.now();
-    const durationSeconds = (endTime - startTime) / 1000;
-    
-    // Extract token count and response
-    if (response.data) {
-      totalTokens = response.data.eval_count || 0;
-      responseText = response.data.response || '';
-    }
-    
-    const tokensPerSecond = totalTokens / durationSeconds;
-    
-    console.log(`  ✓ Completed in ${durationSeconds.toFixed(2)}s`);
-    console.log(`  ✓ Generated ${totalTokens} tokens`);
-    console.log(`  ✓ Speed: ${tokensPerSecond.toFixed(2)} tokens/second`);
-    
-    return {
-      model: modelName,
-      tokensPerSecond: parseFloat(tokensPerSecond.toFixed(2)),
-      totalTokens: totalTokens,
-      durationSeconds: parseFloat(durationSeconds.toFixed(2)),
-      timestamp: new Date().toISOString(),
-      success: true,
-      prompt: promptToUse,
-      response: responseText
-    };
-  } catch (error) {
-    console.error(`  ✗ Error benchmarking ${modelName}: ${(error as Error).message}`);
-    return {
-      model: modelName,
-      tokensPerSecond: 0,
-      totalTokens: 0,
-      durationSeconds: 0,
-      timestamp: new Date().toISOString(),
-      success: false,
-      error: (error as Error).message,
-      prompt: promptToUse,
-      response: ''
-    };
-  }
+  const target = await resolveTarget();
+  return runSingle(modelName, promptToUse, {
+    target,
+    stream: options.stream !== false,
+    now: options.now || Date.now,
+    concurrency: 1,
+    batchId: randomUUID()
+  });
 }
+
+function median(values: number[]): number | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function countBy(rows: BenchmarkResult[], key: 'servedBy' | 'backend'): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    const value = row[key];
+    if (value) {
+      counts[value] = (counts[value] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
+/** Roll one concurrent batch up into a single row. */
+export function computeAggregate(rows: BenchmarkResult[], wallSeconds: number): BenchmarkAggregate {
+  const successful = rows.filter(r => r.success);
+  const totalTokens = successful.reduce((sum, r) => sum + r.totalTokens, 0);
+  const medianTtft = median(successful.map(r => r.ttftMs).filter((v): v is number => typeof v === 'number'));
+  const medianDecode = median(successful.map(r => r.decodeTokensPerSecond).filter((v): v is number => typeof v === 'number'));
+  return {
+    batchId: rows[0]?.batchId || '',
+    model: rows[0]?.model || '',
+    concurrency: rows.length,
+    wallSeconds: round(wallSeconds, 2),
+    aggregateTokensPerSecond: wallSeconds > 0 ? round(totalTokens / wallSeconds, 2) : 0,
+    medianTtftMs: medianTtft === undefined ? undefined : round(medianTtft, 1),
+    medianDecodeTokensPerSecond: medianDecode === undefined ? undefined : round(medianDecode, 2),
+    servedByCounts: countBy(rows, 'servedBy'),
+    backendCounts: countBy(rows, 'backend'),
+    successes: successful.length,
+    failures: rows.length - successful.length
+  };
+}
+
+export function clampConcurrency(value: unknown): number {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n) || n < 1) {
+    return 1;
+  }
+  return Math.min(Math.floor(n), MAX_CONCURRENCY);
+}
+
+/**
+ * Fire `concurrency` identical requests at once and report each row plus the batch
+ * aggregate. Every row shares one batchId; concurrency is clamped to 1..16.
+ */
+export async function benchmarkModelConcurrently(
+  modelName: string,
+  customPrompt: string | undefined,
+  concurrency: number,
+  options: Omit<BenchmarkOptions, 'concurrency'> = {}
+): Promise<{ results: BenchmarkResult[]; aggregate: BenchmarkAggregate }> {
+  const promptToUse = customPrompt || DEFAULT_PROMPT;
+  const n = clampConcurrency(concurrency);
+  const now = options.now || Date.now;
+  const target = await resolveTarget();
+  const ctx: SingleRunContext = {
+    target,
+    stream: options.stream !== false,
+    now,
+    concurrency: n,
+    batchId: randomUUID()
+  };
+
+  console.log(`\nBenchmarking ${modelName} (${n} concurrent, ${ctx.stream ? 'streaming' : 'non-streaming'}, ${target.transport} → ${target.url})...`);
+  const wallStart = now();
+  const results = await Promise.all(Array.from({ length: n }, () => runSingle(modelName, promptToUse, ctx)));
+  const wallSeconds = (now() - wallStart) / 1000;
+  return { results, aggregate: computeAggregate(results, wallSeconds) };
+}
+
 
 /**
  * Save results to CSV file (for backward compatibility)
@@ -414,9 +961,11 @@ export function saveResultsToCSV(results: BenchmarkResult[]): void {
 }
 
 /**
- * Save results to database
+ * Save results (and the batch aggregates they belong to) to the database. Both
+ * attach to one freshly recorded system-specs row so a batch and its rows can
+ * always be joined back to the machine that ran them. Returns that specs id.
  */
-export async function saveResultsToDatabase(results: BenchmarkResult[]): Promise<void> {
+export async function saveResultsToDatabase(results: BenchmarkResult[], aggregates: BenchmarkAggregate[] = []): Promise<number> {
   try {
     // Initialize database
     initDatabase();
@@ -432,10 +981,67 @@ export async function saveResultsToDatabase(results: BenchmarkResult[]): Promise
     // Save benchmark results
     saveBenchmarkResults(results, systemSpecsId);
     console.log('Benchmark results saved to database');
+
+    for (const aggregate of aggregates) {
+      saveBenchmarkAggregate(aggregate, systemSpecsId);
+    }
+    if (aggregates.length > 0) {
+      console.log(`${aggregates.length} batch aggregate${aggregates.length === 1 ? '' : 's'} saved to database`);
+    }
+    return systemSpecsId;
   } catch (error) {
     console.error('Error saving to database:', (error as Error).message);
     throw error;
   }
+}
+
+
+export interface CliArgs {
+  models: string[];
+  concurrency: number;
+  stream: boolean;
+}
+
+/** `--concurrency=N` and `--no-stream` are flags; everything else is a model name. */
+export function parseCliArgs(argv: string[]): CliArgs {
+  const args: CliArgs = { models: [], concurrency: 1, stream: true };
+  for (const arg of argv) {
+    if (arg === '--no-stream') {
+      args.stream = false;
+    } else if (arg.startsWith('--concurrency=')) {
+      args.concurrency = clampConcurrency(arg.slice('--concurrency='.length));
+    } else if (arg.startsWith('--')) {
+      console.error(`Ignoring unknown flag ${arg}`);
+    } else {
+      args.models.push(arg);
+    }
+  }
+  return args;
+}
+
+function formatRow(r: BenchmarkResult): string {
+  const parts = [
+    `${r.tokensPerSecond} tok/s wall`,
+    r.decodeTokensPerSecond !== undefined ? `${r.decodeTokensPerSecond} tok/s decode` : undefined,
+    r.ttftMs !== undefined ? `TTFT ${r.ttftMs}ms` : undefined,
+    r.servedBy ? `served by ${r.servedBy}` : undefined,
+    r.backend ? `backend ${r.backend}` : undefined
+  ].filter(Boolean);
+  return parts.join(', ');
+}
+
+function formatAggregate(a: BenchmarkAggregate): string {
+  const served = Object.entries(a.servedByCounts).map(([k, v]) => `${k}×${v}`).join(' ');
+  const backends = Object.entries(a.backendCounts).map(([k, v]) => `${k}×${v}`).join(' ');
+  const parts = [
+    `aggregate ${a.aggregateTokensPerSecond} tok/s over ${a.wallSeconds}s`,
+    `${a.successes}/${a.concurrency} ok`,
+    a.medianTtftMs !== undefined ? `median TTFT ${a.medianTtftMs}ms` : undefined,
+    a.medianDecodeTokensPerSecond !== undefined ? `median decode ${a.medianDecodeTokensPerSecond} tok/s` : undefined,
+    served ? `served by ${served}` : undefined,
+    backends ? `backends ${backends}` : undefined
+  ].filter(Boolean);
+  return parts.join(', ');
 }
 
 /**
@@ -443,47 +1049,56 @@ export async function saveResultsToDatabase(results: BenchmarkResult[]): Promise
  */
 async function main(): Promise<void> {
   console.log('=== Local LLM Benchmark Tool ===');
-  console.log(`Ollama API URL: ${OLLAMA_API_URL}`);
-  
-  // Get models from command line arguments or use defaults
-  const modelsToTest = process.argv.slice(2).length > 0 
-    ? process.argv.slice(2) 
-    : DEFAULT_MODELS;
-  
-  console.log(`\nModels to benchmark: ${modelsToTest.join(', ')}`);
-  
-  // Check Ollama connection
+  const args = parseCliArgs(process.argv.slice(2));
+  const modelsToTest = args.models.length > 0 ? args.models : DEFAULT_MODELS;
+
+  // Check the target answers before spending two minutes per model on it
+  let target: ResolvedTarget;
   try {
-    await axios.get(`${OLLAMA_API_URL}/api/tags`);
-    console.log('✓ Connected to Ollama API');
+    target = await resolveTarget();
+    if (target.transport === 'openai') {
+      await axios.get(`${target.url}/v1/models`, { timeout: PROBE_TIMEOUT_MS, headers: authHeaders() });
+    }
+    console.log(`Target: ${target.url} (${target.transport}, ${target.path})`);
+    console.log(`✓ Connected to ${target.transport === 'ollama' ? 'Ollama' : 'OpenAI-compatible'} API`);
   } catch (error) {
-    console.error('✗ Cannot connect to Ollama API. Make sure Ollama is running.');
+    console.error('✗ Cannot connect to the inference API. Set OLLAMA_API_URL or CI_LLM_BASE_URL and make sure it is running.');
     console.error(`  Error: ${(error as Error).message}`);
     process.exit(1);
   }
-  
+
+  console.log(`\nModels to benchmark: ${modelsToTest.join(', ')}`);
+  console.log(`Concurrency: ${args.concurrency}, streaming: ${args.stream ? 'on' : 'off'}`);
+
   // Run benchmarks
   const results: BenchmarkResult[] = [];
+  const aggregates: BenchmarkAggregate[] = [];
   for (const model of modelsToTest) {
-    const result = await benchmarkModel(model);
-    results.push(result);
+    const batch = await benchmarkModelConcurrently(model, undefined, args.concurrency, { stream: args.stream });
+    results.push(...batch.results);
+    aggregates.push(batch.aggregate);
+    for (const row of batch.results) {
+      if (row.success) {
+        console.log(`    ${formatRow(row)}`);
+      }
+    }
+    console.log(`  = ${formatAggregate(batch.aggregate)}`);
   }
-  
+
   // Save results
   saveResultsToCSV(results);
-  await saveResultsToDatabase(results);
-  
+  await saveResultsToDatabase(results, aggregates);
+
   // Summary
   console.log('\n=== Benchmark Summary ===');
-  const successfulResults = results.filter(r => r.success);
-  if (successfulResults.length > 0) {
-    successfulResults.sort((a, b) => b.tokensPerSecond - a.tokensPerSecond);
-    console.log('\nRanking (by tokens/second):');
-    successfulResults.forEach((r, i) => {
-      console.log(`  ${i + 1}. ${r.model}: ${r.tokensPerSecond} tokens/s`);
+  const ranked = aggregates.filter(a => a.successes > 0).sort((a, b) => b.aggregateTokensPerSecond - a.aggregateTokensPerSecond);
+  if (ranked.length > 0) {
+    console.log(`\nRanking (by ${args.concurrency > 1 ? 'aggregate ' : ''}tokens/second):`);
+    ranked.forEach((a, i) => {
+      console.log(`  ${i + 1}. ${a.model}: ${formatAggregate(a)}`);
     });
   }
-  
+
   const failedResults = results.filter(r => !r.success);
   if (failedResults.length > 0) {
     console.log('\nFailed benchmarks:');
@@ -491,7 +1106,7 @@ async function main(): Promise<void> {
       console.log(`  ✗ ${r.model}: ${r.error}`);
     });
   }
-  
+
   console.log('\nDone! Open index.html in a browser to view the results.');
 }
 

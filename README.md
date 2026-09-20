@@ -25,6 +25,7 @@ Full page view: [`docs/screenshots/01-overview.png`](docs/screenshots/01-overvie
 ## What it does
 
 - Benchmarks any model installed in Ollama and reports tokens per second, total tokens, and duration.
+- Benchmarks a [CI-Hub](https://github.com/companionintelligence/CI-Hub) inference pool the way an installed app sees it: fires N requests at once, records which node and engine answered each one, and reports time to first token, decode speed, and aggregate throughput.
 - Shows a curated catalog of popular models with sizes, context windows, and an intelligence score, so you can compare capability alongside speed.
 - Lets you pick a built in prompt, edit it, or write your own before running.
 - Shows two model responses at a time so you can read them next to each other.
@@ -43,7 +44,7 @@ Full page view: [`docs/screenshots/01-overview.png`](docs/screenshots/01-overvie
 ## Requirements
 
 - [Node.js](https://nodejs.org/) version 22.5 or higher (needed for the built-in `node:sqlite` module), or [Deno](https://deno.com/) 2.9+ — see [Running under Deno](#running-under-deno).
-- [Ollama](https://ollama.ai/) running locally with at least one model pulled.
+- [Ollama](https://ollama.ai/) running locally with at least one model pulled, or a reachable [CI-Hub](https://github.com/companionintelligence/CI-Hub) inference pool (see [Benchmarking a CI-Hub pool](#benchmarking-a-ci-hub-pool)).
 - Optional: an AMD Ryzen AI Max "Strix Halo" machine for the llama.cpp GPU path. See [STRIX_HALO.md](STRIX_HALO.md).
 
 ## Quick start
@@ -87,7 +88,77 @@ node dist/benchmark.js llama3.2:3b qwen3:8b gemma3:4b
 
 # point at a non default Ollama
 OLLAMA_API_URL=http://192.168.1.50:11434 npm run benchmark
+
+# fire four requests at once and report the batch aggregate
+node dist/benchmark.js gemma3:4b --concurrency=4
+
+# one request at a time, no streaming (no TTFT; matches the old numbers exactly)
+node dist/benchmark.js gemma3:4b --no-stream
 ```
+
+## Benchmarking a CI-Hub pool
+
+A CI-Hub exposes its inference pool at `{hub}/api/inference/pool`. It speaks Ollama's API (`/api/tags`, `/api/generate`) and OpenAI's (`/v1/chat/completions`) and routes each request to whichever node in the pool has the model loaded. Point Local-Bench at it and the tool measures throughput from an app's seat: the same path a marketplace app takes, including the routing decision.
+
+```bash
+# a pool on the tailnet
+OLLAMA_API_URL=http://100.115.174.32:5002/api/inference/pool node dist/benchmark.js gemma3:1b --concurrency=4
+
+# the same, as the dashboard
+OLLAMA_API_URL=http://100.115.174.32:5002/api/inference/pool npm start
+```
+
+Inside a Hub-installed app you do not need to set anything once the marketplace manifest maps the Hub's resolved inference endpoint onto these variables (`APP_OLLAMA_URL` → `OLLAMA_API_URL`, `APP_OPENAI_BASE_URL` → `CI_LLM_BASE_URL`, `APP_OPENAI_API_KEY` → `CI_LLM_API_KEY`; see `CI-Marketplace/apps/ci-local-bench/docker-compose.json`). `OLLAMA_API_URL` wins whenever it is non-empty, so an Ollama-backed Hub benchmarks through its pool with native timings and a vLLM/Lemonade-backed Hub falls through to the OpenAI transport.
+
+### Environment
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `OLLAMA_API_URL` | Ollama-native base URL. May be a pool proxy. Wins when set. | `http://localhost:11434` |
+| `CI_LLM_BASE_URL` | OpenAI-compatible base URL, with or without a trailing `/v1`. Used when `OLLAMA_API_URL` is unset or empty. | unset |
+| `CI_LLM_API_KEY` | Sent as `Authorization: Bearer` on every request when set. | unset |
+| `BENCH_TRANSPORT` | Force `ollama` or `openai`. Otherwise the tool probes `GET {base}/api/tags` once: answers means Ollama-native, anything else means OpenAI-compatible. | auto |
+| `PORT` | Dashboard port. | `3000` |
+
+The OpenAI transport is how you reach an engine directly rather than through the pool: vLLM at `http://host:8000`, Lemonade at `http://host:13305`, Lucebox at `http://host:8216`. Those have no `/api/generate`, so set `CI_LLM_BASE_URL` (or `OLLAMA_API_URL`, either works) to the engine's base and the tool uses `/v1/chat/completions`.
+
+### Concurrency
+
+`--concurrency=N` (CLI) or the concurrency selector (dashboard) sends N identical requests at the same instant and waits for all of them. N is clamped to 1..16. Every row in the batch shares a `batchId`, and the batch gets one aggregate row.
+
+Concurrency is the interesting knob for a pool. A single request measures one node. Four at once show whether the pool spreads them across nodes (each row's `servedBy` names the node, `backend` names the engine) and what the whole pool delivers per second.
+
+### What the numbers mean
+
+- **tok/s** (`tokensPerSecond`) is generated tokens divided by wall-clock time for that request, including queueing, routing, model load, and prompt processing. This is the number the tool has always reported and the one old CSVs and charts compare against. Under concurrency it drops, because each request waits its turn.
+- **TTFT** (`ttftMs`) is milliseconds from sending the request to the first content chunk. Only measured when streaming (the default). This is the latency a user feels before text starts appearing; on a pool it includes the routing hop and any model load on the chosen node.
+- **Decode tok/s** (`decodeTokensPerSecond`) is the engine's generation speed with everything before the first token excluded. On Ollama it is `eval_count / eval_duration` from the response's own timings; on an OpenAI-compatible engine it is tokens over the time after TTFT. This is the number to compare engines and hardware on, since it is insensitive to load time and queueing.
+- **Aggregate tok/s** (`aggregateTokensPerSecond`) is the sum of all tokens in a batch divided by the batch's wall time. This is the pool's throughput: what N simultaneous apps would get out of it together. Compare it against the concurrency-1 number to see how much the pool scales.
+- **Served by / backend** come from the `X-Hub-Pool-Served-By` and `X-Hub-Pool-Backend` response headers the pool adds (`local` or a peer's MagicDNS name; `ollama`, `vllm`, `lemonade`, `lucebox`, `dspark`, or `mtplx`). They are empty on a direct Ollama or engine target. `requestId` is `X-Hub-Pool-Request-Id`, useful for finding the request in the Hub's logs.
+- **Load / prompt eval / eval** (`loadMs`, `promptEvalMs`, `evalMs`) are Ollama's own timing breakdown, in milliseconds. Only present on the Ollama transport.
+
+The CLI prints one line per request and then an `=` line with the batch aggregate:
+
+```
+Benchmarking gemma3:1b (4 concurrent, streaming, ollama → http://100.115.174.32:5002/api/inference/pool)...
+  ✓ gemma3:1b: 2.13s, 107 tokens, 50.19 tokens/second
+  ...
+    50.19 tok/s wall, 89.94 tok/s decode, TTFT 945ms, served by core-4.capybara-ulmer.ts.net, backend ollama
+  = aggregate 50.92 tok/s over 7.92s, 4/4 ok, median TTFT 3436ms, median decode 92.87 tok/s, served by beta-1…×1 core-4…×1 fzzy…×1 core-17…×1, backends ollama×4
+```
+
+The dashboard shows the same: a banner naming the target and whether it is a pool, pool columns in the results table when the rows have them, and an aggregate throughput panel with the served-by distribution.
+
+### API
+
+The dashboard's server exposes these for scripts:
+
+- `GET /api/target` → `{ url, transport, path, pool }`; `path` is `pool` when the URL contains `/inference/pool`, and `pool.servedByHeaderSeen` says whether the pool has answered this process yet.
+- `POST /api/run-benchmark` with `{ models, promptId?, customPrompt?, concurrency?, stream? }` → `{ success, results, aggregates }`.
+- `GET /api/results` → every stored row, new fields `null` on rows written before them.
+- `GET /api/aggregates?limit=N` → recent batch aggregates.
+
+This tool measures throughput over time from the app's side. Conformance of the pool's wire protocol is the job of the fleet harness in CI-Engineering; the two are meant to be run together, not instead of each other.
 
 ## AMD Strix Halo benchmarks
 
@@ -120,8 +191,8 @@ Benchmark data is written to the working directory (`/app` in the container). Mo
 
 ## Where results are stored
 
-- `benchmark_results.csv` is a flat record of every run.
-- `benchmark_data.db` is a SQLite database with results and system specs.
+- `benchmark_results.csv` is a flat record of every run (the six original columns only).
+- `benchmark_data.db` is a SQLite database with results, batch aggregates, and system specs. An older database is migrated in place when the tool opens it; the pool columns are `NULL` on rows that predate them.
 
 ## Model intelligence scores
 
@@ -131,7 +202,7 @@ Each curated model carries an intelligence score from the [Artificial Analysis I
 
 Edit [`src/benchmark.ts`](src/benchmark.ts) to customize:
 
-- `OLLAMA_API_URL`, the Ollama endpoint (also an environment variable, default `http://localhost:11434`).
+- `OLLAMA_API_URL` / `CI_LLM_BASE_URL`, the inference endpoint (environment variables; see [Benchmarking a CI-Hub pool](#benchmarking-a-ci-hub-pool)).
 - `TEST_PROMPTS`, the benchmark prompt library.
 - `SUPPORTED_OLLAMA_MODELS`, the curated catalog and each model's intelligence score.
 
