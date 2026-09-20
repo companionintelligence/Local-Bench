@@ -277,6 +277,44 @@
         .note.warn code.cmd { background: rgba(0,0,0,.30); border-color: rgba(255,255,255,.45); color: #fff; }
         .note.warn code.cmd.copied { color: #fff; border-color: #fff; }
 
+        /* ---- Target banner: direct Ollama vs. a CI-Hub pool proxy (GET /api/target) ---- */
+        .target-banner {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+            margin-bottom: 18px; padding: 12px 16px;
+            border: 1px solid var(--border); border-left: 3px solid var(--brand);
+            background: var(--surface); border-radius: var(--radius-sm); box-shadow: var(--shadow-sm);
+            font-size: .9rem; color: var(--ink-2);
+        }
+        .target-banner strong { color: var(--ink); }
+        .target-banner code { font-family: var(--mono); font-size: .84em; color: var(--ink); word-break: break-all; }
+        .target-banner .tags { margin-left: auto; }
+        @media (max-width: 640px) { .target-banner .tags { margin-left: 0; } }
+
+        /* ---- Run options: concurrency + streaming (sent in the POST body) ---- */
+        .run-options { display: flex; flex-wrap: wrap; gap: 14px 32px; align-items: flex-start; margin-top: 20px; }
+        .run-option { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .run-option .field-label { margin-bottom: 0; }
+        .run-option select.input { width: auto; min-width: 190px; }
+        .run-option .hint-sm { font-size: .8rem; color: var(--muted); max-width: 44ch; }
+        .switch {
+            display: inline-flex; align-items: center; gap: 10px; min-height: 42px;
+            font-size: .92rem; color: var(--ink-2); cursor: pointer;
+        }
+        .switch input { width: 18px; height: 18px; accent-color: var(--brand); margin: 0; flex: 0 0 auto; }
+
+        /* ---- Aggregate throughput (concurrent batches, pool routing) ---- */
+        .agg-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr); gap: 24px; }
+        @media (max-width: 860px) { .agg-grid { grid-template-columns: 1fr; } }
+        .agg-side + .agg-side { margin-top: 20px; }
+        .agg-side h3 { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+        .dist-list { display: flex; flex-direction: column; gap: 9px; }
+        .dist-row { display: grid; grid-template-columns: minmax(80px, 150px) 1fr auto; gap: 10px; align-items: center; font-size: .88rem; }
+        .dist-row .nm { font-weight: 600; word-break: break-word; }
+        .dist-row .bar { height: 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+        .dist-row .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-strong), var(--accent-2)); border-radius: 999px; }
+        .dist-row .n { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .dist-empty { font-size: .86rem; color: var(--muted); }
+
         /* ---- Tags / chips ---- */
         .tags { display: flex; flex-wrap: wrap; gap: 6px; }
         .tag {
@@ -597,6 +635,10 @@
     <main class="wrap" id="dashboardMain">
         <div id="errorContainer"></div>
 
+        <!-- Where requests go: a direct Ollama daemon, or a CI-Hub pool proxy that
+             routes each request to a node. Filled from GET /api/target. -->
+        <div class="target-banner" id="targetBanner" hidden></div>
+
         <!-- Run benchmarks -->
         <section class="section">
             <div class="section-head">
@@ -622,6 +664,25 @@
 
                     <label class="field-label" style="margin-top:18px">Prompt library <span class="prompt-editor-hint">— click a card to use it, expand to preview the prompt</span></label>
                     <div class="prompt-library" id="promptLibrary"></div>
+                </div>
+
+                <div class="run-options">
+                    <div class="run-option">
+                        <label class="field-label" for="concurrencySelect">Concurrency</label>
+                        <select class="input" id="concurrencySelect">
+                            <option value="1" selected>1 — one request at a time</option>
+                            <option value="2">2 concurrent requests</option>
+                            <option value="4">4 concurrent requests</option>
+                            <option value="8">8 concurrent requests</option>
+                            <option value="16">16 concurrent requests</option>
+                        </select>
+                        <span class="hint-sm">Requests sent to each model at once. Through a pool they spread across nodes; the aggregate panel shows the combined rate.</span>
+                    </div>
+                    <div class="run-option">
+                        <span class="field-label">Streaming</span>
+                        <label class="switch" for="streamToggle"><input type="checkbox" id="streamToggle" checked> Stream tokens</label>
+                        <span class="hint-sm">Streaming records time to first token. Turn it off to measure a single blocking response.</span>
+                    </div>
                 </div>
 
                 <div class="btn-row">
@@ -684,6 +745,29 @@
             </div>
         </section>
 
+        <!-- Aggregate throughput: one bar per model × concurrency from the batch
+             aggregates (POST response + GET /api/aggregates), plus where the pool
+             sent the requests. Hidden until a batch aggregate exists. -->
+        <section class="section" id="aggregateSection" hidden>
+            <div class="section-head">
+                <h2>Aggregate throughput</h2>
+                <span class="hint">Combined tokens per second per model × concurrency, and where each request was served</span>
+            </div>
+            <div class="card">
+                <div class="agg-grid">
+                    <div class="chart-box" style="min-height:320px">
+                        <canvas id="aggregateChart"></canvas>
+                        <div class="chart-fallback" id="aggregateFallback"></div>
+                    </div>
+                    <div>
+                        <div class="agg-side"><h3>Served by</h3><div class="dist-list" id="servedByList"></div></div>
+                        <div class="agg-side"><h3>Backends</h3><div class="tags" id="backendList"></div></div>
+                    </div>
+                </div>
+                <div class="chart-insights" id="aggregateInsights"></div>
+            </div>
+        </section>
+
         <!-- Detailed results -->
         <section class="section">
             <div class="section-head">
@@ -701,8 +785,15 @@
                                 <th>Model</th>
                                 <th>Intelligence</th>
                                 <th>Tokens/s</th>
+                                <!-- data-col columns come from pool / streaming runs and stay
+                                     hidden while every row lacks them (see displayResults). -->
+                                <th data-col="decodeTokensPerSecond" hidden>Decode tok/s</th>
+                                <th data-col="ttftMs" hidden>TTFT</th>
+                                <th data-col="loadMs" hidden>Load</th>
                                 <th>Total tokens</th>
                                 <th>Duration</th>
+                                <th data-col="servedBy" hidden>Served by</th>
+                                <th data-col="backend" hidden>Backend</th>
                                 <th>Timestamp</th>
                                 <th>Status</th>
                             </tr>
@@ -838,6 +929,16 @@
         let intelligenceAutoCollapsed = false;
         let ollamaReachable = null;
         let intelligenceMeta = { source: 'Artificial Analysis Intelligence Index', url: 'https://artificialanalysis.ai/', asOf: '' };
+        // Pool / concurrency additions. targetInfo is GET /api/target; lastAggregates
+        // is the last POST response's aggregates, storedAggregates is GET /api/aggregates.
+        let targetInfo = null;
+        let lastAggregates = [];
+        let storedAggregates = [];
+        let aggChart = null;
+
+        // Columns that only exist for pool-routed or streamed runs. Each is shown in
+        // the results table (and the PDF) only when at least one row carries a value.
+        const POOL_COLUMNS = ['decodeTokensPerSecond', 'ttftMs', 'loadMs', 'servedBy', 'backend'];
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -845,18 +946,86 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
+        // First present value among several spellings (the API is camelCase, but a
+        // raw DB row may come back snake_case; null/'' count as absent).
+        function pick(obj, ...keys) {
+            for (const k of keys) {
+                const v = obj?.[k];
+                if (v !== undefined && v !== null && v !== '') return v;
+            }
+            return undefined;
+        }
+        function numOrUndef(v) {
+            if (v === undefined || v === null || v === '') return undefined;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : undefined;
+        }
+        function fmtMs(v) { return Number.isFinite(v) ? Math.round(v).toLocaleString() + ' ms' : '—'; }
+        function fmtTps(v) { return Number.isFinite(v) ? v.toFixed(2) : '—'; }
+        function hasValue(v) { return v !== undefined && v !== null && v !== '' && !(typeof v === 'number' && !Number.isFinite(v)); }
+
         function normalizeResult(result) {
             const normalizedStatus = typeof result.status === 'string' ? result.status.toLowerCase() : '';
             const success = typeof result.success === 'boolean' ? result.success : normalizedStatus === 'success';
+            const duration = Number(result.duration ?? result.durationSeconds ?? result.duration_seconds ?? 0);
             return {
                 model: result.model,
                 tokensPerSecond: Number(result.tokensPerSecond || 0),
                 totalTokens: Number(result.totalTokens || 0),
-                duration: Number(result.duration ?? result.durationSeconds ?? 0),
+                duration,
+                durationSeconds: duration,
                 timestamp: result.timestamp,
                 status: success ? 'Success' : 'Failed',
-                success
+                success,
+                error: result.error,
+                prompt: result.prompt,
+                response: result.response,
+                // Pool / streaming fields — optional on every row.
+                transport: pick(result, 'transport'),
+                path: pick(result, 'path'),
+                targetUrl: pick(result, 'targetUrl', 'target_url'),
+                servedBy: pick(result, 'servedBy', 'served_by'),
+                backend: pick(result, 'backend'),
+                requestId: pick(result, 'requestId', 'request_id'),
+                ttftMs: numOrUndef(pick(result, 'ttftMs', 'ttft_ms')),
+                promptTokens: numOrUndef(pick(result, 'promptTokens', 'prompt_tokens')),
+                loadMs: numOrUndef(pick(result, 'loadMs', 'load_ms')),
+                promptEvalMs: numOrUndef(pick(result, 'promptEvalMs', 'prompt_eval_ms')),
+                evalMs: numOrUndef(pick(result, 'evalMs', 'eval_ms')),
+                decodeTokensPerSecond: numOrUndef(pick(result, 'decodeTokensPerSecond', 'decode_tokens_per_second')),
+                concurrency: numOrUndef(pick(result, 'concurrency')),
+                batchId: pick(result, 'batchId', 'batch_id')
             };
+        }
+
+        function parseCounts(v) {
+            if (!v) return {};
+            if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return {}; } }
+            return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+        }
+
+        function normalizeAggregate(a) {
+            return {
+                batchId: pick(a, 'batchId', 'batch_id') ?? '',
+                model: a?.model ?? '',
+                concurrency: numOrUndef(pick(a, 'concurrency')) ?? 1,
+                wallSeconds: numOrUndef(pick(a, 'wallSeconds', 'wall_seconds')) ?? 0,
+                aggregateTokensPerSecond: numOrUndef(pick(a, 'aggregateTokensPerSecond', 'aggregate_tokens_per_second')) ?? 0,
+                medianTtftMs: numOrUndef(pick(a, 'medianTtftMs', 'median_ttft_ms')),
+                medianDecodeTokensPerSecond: numOrUndef(pick(a, 'medianDecodeTokensPerSecond', 'median_decode_tokens_per_second')),
+                servedByCounts: parseCounts(pick(a, 'servedByCounts', 'served_by_counts')),
+                backendCounts: parseCounts(pick(a, 'backendCounts', 'backend_counts')),
+                successes: numOrUndef(pick(a, 'successes')) ?? 0,
+                failures: numOrUndef(pick(a, 'failures')) ?? 0,
+                timestamp: pick(a, 'timestamp') ?? ''
+            };
+        }
+
+        // Which pool columns any of these rows actually carry.
+        function poolColumnsPresent(results) {
+            const present = new Set();
+            (results || []).forEach(r => POOL_COLUMNS.forEach(k => { if (hasValue(r?.[k])) present.add(k); }));
+            return present;
         }
 
         function iqBadge(score) {
@@ -917,10 +1086,55 @@
             });
         }
 
+        // ---- Target banner (GET /api/target) ----
+        function targetIsPool(t) {
+            if (!t) return false;
+            return t.path === 'pool' || /\/inference\/pool/.test(String(t.url || ''));
+        }
+        function connectedLabel() {
+            if (targetIsPool(targetInfo)) return 'Pool connected';
+            return targetInfo?.transport === 'openai' ? 'Engine connected' : 'Ollama connected';
+        }
+
+        async function loadTarget() {
+            try {
+                const res = await fetch('/api/target');
+                if (!res.ok) throw new Error('target unavailable');
+                targetInfo = await res.json();
+            } catch (e) { targetInfo = null; }
+            renderTargetBanner();
+        }
+
+        function renderTargetBanner() {
+            const banner = document.getElementById('targetBanner');
+            if (!banner) return;
+            const t = targetInfo;
+            if (!t?.url) { banner.hidden = true; banner.innerHTML = ''; return; }
+            const isPool = targetIsPool(t);
+            const transportTag = t.transport
+                ? `<span class="tag muted" title="Wire protocol used for /api/run-benchmark">${escapeHtml(t.transport === 'openai' ? 'OpenAI-compatible' : 'Ollama API')}</span>`
+                : '';
+            let routedTag = '';
+            if (isPool && t.pool && typeof t.pool.servedByHeaderSeen === 'boolean') {
+                routedTag = t.pool.servedByHeaderSeen
+                    ? '<span class="tag ok" title="A response carried X-Hub-Pool-Served-By">Pool routing confirmed</span>'
+                    : '<span class="tag muted" title="No response has carried X-Hub-Pool-Served-By yet">No routed response yet</span>';
+            }
+            banner.innerHTML = isPool
+                ? `<span>Benchmarking through <strong>CI-Hub pool</strong> at <code>${escapeHtml(t.url)}</code></span><div class="tags"><span class="tag brand">Pool</span>${transportTag}${routedTag}</div>`
+                : `<span><strong>Direct:</strong> <code>${escapeHtml(t.url)}</code></span><div class="tags"><span class="tag">Direct</span>${transportTag}</div>`;
+            banner.hidden = false;
+            // The status pill may have rendered before /api/target answered.
+            if (ollamaReachable === true) {
+                const label = document.getElementById('ollamaLabel');
+                if (label) label.textContent = connectedLabel();
+            }
+        }
+
         function updateOllamaStatus(state) {
             const dot = document.getElementById('ollamaDot');
             const label = document.getElementById('ollamaLabel');
-            if (state === 'connected') { dot.className = 'dot ok'; label.textContent = 'Ollama connected'; }
+            if (state === 'connected') { dot.className = 'dot ok'; label.textContent = connectedLabel(); }
             else if (state === 'unavailable') { dot.className = 'dot warn'; label.textContent = 'Ollama unavailable'; }
             else { dot.className = 'dot'; label.textContent = 'Connecting…'; }
             // Remembered so the empty state can tell the user the step that is
@@ -1123,16 +1337,36 @@
         function displayResults(results) {
             const tbody = document.getElementById('resultsBody');
             tbody.innerHTML = '';
+            // Pool / streaming columns show only when some row carries them, so a
+            // plain Ollama history keeps the table it always had.
+            const present = poolColumnsPresent(results);
+            const table = tbody.closest('table');
+            if (table) table.querySelectorAll('thead th[data-col]').forEach(th => { th.hidden = !present.has(th.dataset.col); });
+            const cell = (key, html, cls) => `<td${cls ? ` class="${cls}"` : ''}${present.has(key) ? '' : ' hidden'}>${html}</td>`;
             results.forEach(result => {
                 const cat = modelIndexByName[result.model];
                 const score = cat ? cat.intelligenceIndex : undefined;
                 const row = tbody.insertRow();
+                const servedTitle = [
+                    result?.path ? `path: ${result.path}` : '',
+                    result?.transport ? `transport: ${result.transport}` : '',
+                    result?.requestId ? `request: ${result.requestId}` : '',
+                    result?.concurrency > 1 ? `batch of ${result.concurrency}` : ''
+                ].filter(Boolean).join(' · ');
+                const servedHtml = hasValue(result?.servedBy)
+                    ? `<span class="tag" title="${escapeHtml(servedTitle)}">${escapeHtml(result.servedBy)}</span>`
+                    : '—';
                 row.innerHTML = `
-                    <td><strong>${escapeHtml(result.model)}</strong></td>
+                    <td><strong>${escapeHtml(result.model)}</strong>${result?.concurrency > 1 ? ` <span class="tag muted" title="One of ${escapeHtml(result.concurrency)} concurrent requests">×${escapeHtml(result.concurrency)}</span>` : ''}</td>
                     <td>${iqBadge(score)}</td>
                     <td class="num">${result.tokensPerSecond.toFixed(2)}</td>
+                    ${cell('decodeTokensPerSecond', fmtTps(result?.decodeTokensPerSecond), 'num')}
+                    ${cell('ttftMs', fmtMs(result?.ttftMs), 'num')}
+                    ${cell('loadMs', fmtMs(result?.loadMs), 'num')}
                     <td class="num">${result.totalTokens}</td>
                     <td class="num">${result.duration.toFixed(2)} s</td>
+                    ${cell('servedBy', servedHtml)}
+                    ${cell('backend', hasValue(result?.backend) ? escapeHtml(result.backend) : '—')}
                     <td>${escapeHtml(new Date(result.timestamp).toLocaleString())}</td>
                     <td><span class="badge ${result.success ? 'ok' : 'fail'}"><span class="dot"></span>${result.status}</span></td>`;
             });
@@ -1173,8 +1407,17 @@
 
             const left = document.getElementById('compareLeft');
             const right = document.getElementById('compareRight');
-            const options = lastRun.map((r, i) =>
-                `<option value="${i}">${escapeHtml(r.model)}${r.success ? '' : ' — failed'}</option>`).join('');
+            // A concurrent batch yields several rows per model; number them so the
+            // two dropdowns can tell them apart.
+            const totalPerModel = {};
+            lastRun.forEach(r => { totalPerModel[r.model] = (totalPerModel[r.model] || 0) + 1; });
+            const seenPerModel = {};
+            const options = lastRun.map((r, i) => {
+                seenPerModel[r.model] = (seenPerModel[r.model] || 0) + 1;
+                const ordinal = totalPerModel[r.model] > 1 ? ` #${seenPerModel[r.model]}` : '';
+                const via = r?.servedBy ? ` · ${r.servedBy}` : '';
+                return `<option value="${i}">${escapeHtml(r.model)}${escapeHtml(ordinal)}${escapeHtml(via)}${r.success ? '' : ' — failed'}</option>`;
+            }).join('');
             const n = lastRun.length;
             const clamp = (v, fallback) => {
                 const i = parseInt(v, 10);
@@ -1215,6 +1458,12 @@
             const parts = [`<span><span class="lead">${tps.toFixed(1)}</span> <span class="unit">tok/s</span></span>`];
             if (tokens > 0) parts.push(`<span>${tokens.toLocaleString()} tokens</span>`);
             if (seconds > 0) parts.push(`<span>${seconds.toFixed(1)}s</span>`);
+            // Pool / streaming extras — each only when the run recorded it.
+            const decode = numOrUndef(result?.decodeTokensPerSecond);
+            const ttft = numOrUndef(result?.ttftMs);
+            if (decode !== undefined && decode > 0) parts.push(`<span title="Engine decode speed (eval_count / eval_duration)">${decode.toFixed(1)} decode tok/s</span>`);
+            if (ttft !== undefined && ttft >= 0) parts.push(`<span title="Time to first token">TTFT ${Math.round(ttft).toLocaleString()} ms</span>`);
+            if (result?.servedBy) parts.push(`<span title="X-Hub-Pool-Served-By">via ${escapeHtml(result.servedBy)}${result?.backend ? ' · ' + escapeHtml(result.backend) : ''}</span>`);
             el.innerHTML = parts.join('');
             el.hidden = false;
         }
@@ -1310,6 +1559,141 @@
                 <div class="stat"><div class="k">Fastest model</div><div class="v" style="font-size:1.25rem">${escapeHtml(fastest.model)}</div></div>`;
         }
 
+        // ---- Aggregate throughput (batch aggregates from the pool / concurrent runs) ----
+        async function loadAggregates() {
+            try {
+                const res = await fetch('/api/aggregates?limit=100');
+                if (!res.ok) throw new Error('aggregates unavailable');
+                const data = await res.json();
+                const rows = Array.isArray(data) ? data : (Array.isArray(data?.aggregates) ? data.aggregates : []);
+                storedAggregates = rows.map(normalizeAggregate);
+            } catch (e) { storedAggregates = []; }
+            renderAggregates();
+        }
+
+        // Latest aggregate per model × concurrency. The last run's aggregates are
+        // stamped with the time they arrived, so they win over stored history.
+        function currentAggregates() {
+            const byKey = new Map();
+            const seenBatch = new Set();
+            [...lastAggregates, ...storedAggregates].forEach(a => {
+                if (!a?.model) return;
+                if (a.batchId) { if (seenBatch.has(a.batchId)) return; seenBatch.add(a.batchId); }
+                const key = `${a.model} x${a.concurrency}`;
+                const prev = byKey.get(key);
+                const ts = Date.parse(a.timestamp) || 0;
+                if (!prev || ts > (Date.parse(prev.timestamp) || 0)) byKey.set(key, a);
+            });
+            return Array.from(byKey.values())
+                .sort((x, y) => x.model.localeCompare(y.model) || x.concurrency - y.concurrency);
+        }
+
+
+        function renderDistList(id, counts) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const entries = Object.entries(counts || {})
+                .map(([k, v]) => [k, Number(v) || 0])
+                .filter(([, v]) => v > 0)
+                .sort((a, b) => b[1] - a[1]);
+            if (!entries.length) { el.innerHTML = '<div class="dist-empty">No routing information — the target did not report where requests were served.</div>'; return; }
+            const total = entries.reduce((s, [, v]) => s + v, 0);
+            const max = entries[0][1];
+            el.innerHTML = entries.map(([name, n]) => {
+                const pct = total ? (n / total) * 100 : 0;
+                return `<div class="dist-row"><div class="nm">${escapeHtml(name)}</div><div class="bar"><span style="width:${Math.max(2, (n / max) * 100).toFixed(1)}%"></span></div><div class="n">${n} <span class="unit" style="color:var(--muted);font-weight:600">(${pct.toFixed(0)}%)</span></div></div>`;
+            }).join('');
+        }
+
+        function renderAggregates() {
+            const section = document.getElementById('aggregateSection');
+            if (!section) return;
+            const aggs = currentAggregates().filter(a => a.aggregateTokensPerSecond > 0);
+            if (!aggs.length) {
+                section.hidden = true;
+                if (aggChart) { aggChart.destroy(); aggChart = null; }
+                return;
+            }
+            section.hidden = false;
+
+            const models = [...new Set(aggs.map(a => a.model))];
+            const levels = [...new Set(aggs.map(a => a.concurrency))].sort((a, b) => a - b);
+            const canvas = document.getElementById('aggregateChart');
+            const fallback = document.getElementById('aggregateFallback');
+            const ChartLibrary = typeof window.Chart === 'function' ? window.Chart : null;
+            if (aggChart) { aggChart.destroy(); aggChart = null; }
+
+            if (ChartLibrary && canvas) {
+                canvas.style.display = 'block';
+                fallback.classList.remove('active'); fallback.innerHTML = '';
+                const dark = document.documentElement.dataset.theme === 'dark';
+                const gridColor = dark ? 'rgba(255,255,255,.10)' : 'rgba(12,13,14,.06)';
+                const labelColor = dark ? '#b7cbcd' : '#344b56';
+                // One teal per concurrency level, deepest for ×1.
+                const shades = dark
+                    ? [['rgba(22,163,173,.95)', 'rgba(95,208,216,1)'], ['rgba(46,169,179,.85)', 'rgba(127,224,230,1)'], ['rgba(95,208,216,.75)', 'rgba(143,227,232,1)'], ['rgba(150,170,178,.55)', 'rgba(180,200,205,.85)'], ['rgba(183,203,205,.45)', 'rgba(200,215,218,.85)']]
+                    : [['rgba(9,94,102,.95)', 'rgba(9,94,102,1)'], ['rgba(15,111,120,.85)', 'rgba(15,111,120,1)'], ['rgba(11,135,144,.8)', 'rgba(11,135,144,1)'], ['rgba(46,169,179,.8)', 'rgba(35,128,136,1)'], ['rgba(52,75,86,.6)', 'rgba(18,33,42,1)']];
+                const datasets = levels.map((c, i) => ({
+                    label: `×${c}`,
+                    data: models.map(m => {
+                        const a = aggs.find(x => x.model === m && x.concurrency === c);
+                        return a ? Number(a.aggregateTokensPerSecond.toFixed(2)) : null;
+                    }),
+                    backgroundColor: shades[i % shades.length][0],
+                    borderColor: shades[i % shades.length][1],
+                    borderWidth: 1, borderRadius: 6
+                }));
+                aggChart = new ChartLibrary(canvas.getContext('2d'), {
+                    type: 'bar',
+                    data: { labels: models, datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: levels.length > 1, labels: { color: labelColor, font: { weight: '600' } }, title: { display: levels.length > 1, text: 'Concurrency', color: labelColor } },
+                            title: { display: false }
+                        },
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: labelColor }, title: { display: true, text: 'Aggregate tokens / second', color: labelColor, font: { weight: '600' } } },
+                            x: { grid: { display: false }, ticks: { color: labelColor }, title: { display: true, text: 'Model', color: labelColor, font: { weight: '600' } } }
+                        }
+                    }
+                });
+            } else if (canvas) {
+                canvas.style.display = 'none';
+                fallback.classList.add('active');
+                const top = Math.max(...aggs.map(a => a.aggregateTokensPerSecond));
+                fallback.innerHTML = aggs.map(a => {
+                    const width = top > 0 ? (a.aggregateTokensPerSecond / top) * 100 : 0;
+                    return `<div class="fb-row"><div class="fb-label">${escapeHtml(a.model)} <span class="tag muted">×${escapeHtml(a.concurrency)}</span></div><div class="fb-bar"><div class="fb-fill" style="width:${width.toFixed(2)}%"></div></div><div class="fb-val">${a.aggregateTokensPerSecond.toFixed(2)} t/s</div></div>`;
+                }).join('');
+            }
+
+            // Served-by / backend distribution across the batches on screen.
+            const served = {}, backends = {};
+            aggs.forEach(a => {
+                Object.entries(a.servedByCounts || {}).forEach(([k, v]) => { served[k] = (served[k] || 0) + (Number(v) || 0); });
+                Object.entries(a.backendCounts || {}).forEach(([k, v]) => { backends[k] = (backends[k] || 0) + (Number(v) || 0); });
+            });
+            renderDistList('servedByList', served);
+            const backendList = document.getElementById('backendList');
+            if (backendList) {
+                const entries = Object.entries(backends).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+                backendList.innerHTML = entries.length
+                    ? entries.map(([k, v]) => `<span class="tag">${escapeHtml(k)} <span style="color:var(--muted)">· ${v}</span></span>`).join('')
+                    : '<span class="dist-empty">No backend reported.</span>';
+            }
+
+            const insights = document.getElementById('aggregateInsights');
+            if (insights) {
+                const best = aggs.reduce((m, a) => a.aggregateTokensPerSecond > m.aggregateTokensPerSecond ? a : m);
+                const extras = [];
+                if (Number.isFinite(best.medianTtftMs)) extras.push(`median TTFT ${Math.round(best.medianTtftMs).toLocaleString()} ms`);
+                if (Number.isFinite(best.medianDecodeTokensPerSecond)) extras.push(`median decode ${best.medianDecodeTokensPerSecond.toFixed(1)} tok/s`);
+                if (best.failures > 0) extras.push(`${best.failures} failed`);
+                insights.innerHTML = `<div class="note brand"><strong>Best aggregate:</strong> ${escapeHtml(best.model)} ×${escapeHtml(best.concurrency)} at ${best.aggregateTokensPerSecond.toFixed(2)} tokens/s over ${best.wallSeconds.toFixed(1)}s${extras.length ? ' · ' + escapeHtml(extras.join(' · ')) : ''}.</div>`;
+            }
+        }
+
         // Trim text with an ellipsis so it fits within maxW at the current font/size.
         function pdfClip(doc, text, maxW) {
             text = String(text ?? '');
@@ -1325,7 +1709,12 @@
             const jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
             if (!jsPDFCtor) { showError('PDF library failed to load — refresh the page and try again.'); return; }
 
-            const doc = new jsPDFCtor({ unit: 'pt', format: 'a4' });
+            // Pool / streaming columns only fit A4 landscape; a plain Ollama history
+            // keeps the portrait report it always had.
+            const present = poolColumnsPresent(lastResults);
+            const aggRows = currentAggregates().filter(a => a.aggregateTokensPerSecond > 0);
+            const landscape = present.size > 0;
+            const doc = new jsPDFCtor({ unit: 'pt', format: 'a4', orientation: landscape ? 'landscape' : 'portrait' });
             const PAGE_W = doc.internal.pageSize.getWidth();
             const PAGE_H = doc.internal.pageSize.getHeight();
             const MARGIN = 40;
@@ -1350,6 +1739,10 @@
             doc.text('Companion Intelligence · Local LLM benchmark report', MARGIN, 50);
             doc.setFontSize(9);
             doc.text('Generated ' + now.toLocaleString(), PAGE_W - MARGIN, 32, { align: 'right' });
+            if (targetInfo?.url) {
+                const tline = (targetIsPool(targetInfo) ? 'Via CI-Hub pool: ' : 'Direct: ') + targetInfo.url;
+                doc.text(pdfClip(doc, tline, PAGE_W / 2), PAGE_W - MARGIN, 50, { align: 'right' });
+            }
 
             let y = HEADER_H + 28;
 
@@ -1401,54 +1794,116 @@
                 y += 22;
             }
 
-            // ---- Results table ----
-            const cols = [
-                { key: 'model', label: 'Model', w: 135, align: 'left' },
-                { key: 'iq', label: 'IQ', w: 32, align: 'center' },
-                { key: 'tps', label: 'Tokens/s', w: 60, align: 'right' },
-                { key: 'tot', label: 'Total tokens', w: 66, align: 'right' },
-                { key: 'dur', label: 'Duration', w: 58, align: 'right' },
-                { key: 'ts', label: 'Timestamp', w: 110, align: 'left' },
-                { key: 'st', label: 'Status', w: 54, align: 'left' }
-            ];
-            let cx = MARGIN; cols.forEach(c => { c.x = cx; cx += c.w; });
+            // ---- Table drawer (results and, when present, batch aggregates) ----
             const ROW_H = 18, PAD = 6;
+            // Lay columns out left to right; any width left over widens the 'grow' column.
+            const layoutCols = cols => {
+                const used = cols.reduce((s, c) => s + c.w, 0);
+                const grow = cols.find(c => c.grow) || cols[0];
+                if (used < CONTENT_W) grow.w += CONTENT_W - used;
+                let cx = MARGIN; cols.forEach(c => { c.x = cx; cx += c.w; });
+                return cols;
+            };
             const cellX = c => c.align === 'right' ? c.x + c.w - PAD : c.align === 'center' ? c.x + c.w / 2 : c.x + PAD;
-            const drawHeaderRow = yy => {
+            const drawHeaderRow = (cols, yy) => {
                 doc.setFillColor(TEAL_DK[0], TEAL_DK[1], TEAL_DK[2]);
                 doc.rect(MARGIN, yy, CONTENT_W, ROW_H, 'F');
                 doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
                 cols.forEach(c => doc.text(c.label, cellX(c), yy + 12, { align: c.align }));
                 return yy + ROW_H;
             };
+            // rows: [{ values: {key: text}, color?: {key: [r,g,b]} }]
+            const drawTable = (title, cols, rows, yy) => {
+                layoutCols(cols);
+                if (yy + ROW_H * 3 > PAGE_H - 46) { doc.addPage(); yy = MARGIN + 10; }
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(INK[0], INK[1], INK[2]);
+                doc.text(title, MARGIN, yy); yy += 8;
+                yy = drawHeaderRow(cols, yy);
+                rows.forEach((row, i) => {
+                    if (yy + ROW_H > PAGE_H - 46) { doc.addPage(); yy = MARGIN + 10; yy = drawHeaderRow(cols, yy); }
+                    if (i % 2 === 1) { doc.setFillColor(ZEBRA[0], ZEBRA[1], ZEBRA[2]); doc.rect(MARGIN, yy, CONTENT_W, ROW_H, 'F'); }
+                    doc.setFontSize(8.5);
+                    cols.forEach(c => {
+                        doc.setFont('helvetica', c.bold ? 'bold' : 'normal');
+                        const colour = row.color && row.color[c.key];
+                        if (colour) doc.setTextColor(colour[0], colour[1], colour[2]);
+                        else doc.setTextColor(INK[0], INK[1], INK[2]);
+                        doc.text(pdfClip(doc, row.values[c.key] ?? '—', c.w - PAD * 2), cellX(c), yy + 12, { align: c.align });
+                    });
+                    yy += ROW_H;
+                });
+                return yy;
+            };
 
-            doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(INK[0], INK[1], INK[2]);
-            doc.text('Detailed results', MARGIN, y); y += 8;
-            y = drawHeaderRow(y);
+            // ---- Results table ----
+            // Portrait keeps the original seven columns and widths; landscape adds
+            // whichever pool / streaming columns the rows actually carry.
+            const cols = [
+                { key: 'model', label: 'Model', w: landscape ? 118 : 135, align: 'left', bold: true, grow: true },
+                { key: 'iq', label: 'IQ', w: landscape ? 30 : 32, align: 'center' },
+                { key: 'tps', label: 'Tokens/s', w: landscape ? 54 : 60, align: 'right' },
+                present.has('decodeTokensPerSecond') ? { key: 'decode', label: 'Decode tok/s', w: 62, align: 'right' } : null,
+                present.has('ttftMs') ? { key: 'ttft', label: 'TTFT', w: 52, align: 'right' } : null,
+                present.has('loadMs') ? { key: 'load', label: 'Load', w: 54, align: 'right' } : null,
+                { key: 'tot', label: 'Total tokens', w: landscape ? 60 : 66, align: 'right' },
+                { key: 'dur', label: 'Duration', w: landscape ? 52 : 58, align: 'right' },
+                present.has('servedBy') ? { key: 'served', label: 'Served by', w: 76, align: 'left' } : null,
+                present.has('backend') ? { key: 'backend', label: 'Backend', w: 54, align: 'left' } : null,
+                { key: 'ts', label: 'Timestamp', w: landscape ? 96 : 110, align: 'left' },
+                { key: 'st', label: 'Status', w: landscape ? 52 : 54, align: 'left' }
+            ].filter(Boolean);
 
-            lastResults.forEach((r, i) => {
-                if (y + ROW_H > PAGE_H - 46) { doc.addPage(); y = MARGIN + 10; y = drawHeaderRow(y); }
-                if (i % 2 === 1) { doc.setFillColor(ZEBRA[0], ZEBRA[1], ZEBRA[2]); doc.rect(MARGIN, y, CONTENT_W, ROW_H, 'F'); }
+            const resultRows = lastResults.map(r => {
                 const cat = modelIndexByName[r.model];
                 let ts; try { ts = new Date(r.timestamp).toLocaleString(); } catch (e) { ts = String(r.timestamp || ''); }
-                const values = {
-                    model: r.model,
-                    iq: (cat && cat.intelligenceIndex != null) ? String(cat.intelligenceIndex) : '—',
-                    tps: r.tokensPerSecond.toFixed(2),
-                    tot: String(r.totalTokens),
-                    dur: r.duration.toFixed(2) + ' s',
-                    ts: ts,
-                    st: r.success ? 'Success' : 'Failed'
+                return {
+                    values: {
+                        model: r.model + (r?.concurrency > 1 ? ' (x' + r.concurrency + ')' : ''),
+                        iq: (cat && cat.intelligenceIndex != null) ? String(cat.intelligenceIndex) : '—',
+                        tps: r.tokensPerSecond.toFixed(2),
+                        decode: fmtTps(r?.decodeTokensPerSecond),
+                        ttft: fmtMs(r?.ttftMs),
+                        load: fmtMs(r?.loadMs),
+                        tot: String(r.totalTokens),
+                        dur: r.duration.toFixed(2) + ' s',
+                        served: hasValue(r?.servedBy) ? String(r.servedBy) : '—',
+                        backend: hasValue(r?.backend) ? String(r.backend) : '—',
+                        ts: ts,
+                        st: r.success ? 'Success' : 'Failed'
+                    },
+                    color: { st: r.success ? GREEN : RED }
                 };
-                doc.setFontSize(8.5);
-                cols.forEach(c => {
-                    doc.setFont('helvetica', c.key === 'model' ? 'bold' : 'normal');
-                    if (c.key === 'st') doc.setTextColor(...(r.success ? GREEN : RED));
-                    else doc.setTextColor(INK[0], INK[1], INK[2]);
-                    doc.text(pdfClip(doc, values[c.key], c.w - PAD * 2), cellX(c), y + 12, { align: c.align });
-                });
-                y += ROW_H;
             });
+            y = drawTable('Detailed results', cols, resultRows, y);
+
+            // ---- Aggregate throughput (only when a concurrent / pool batch exists) ----
+            if (aggRows.length) {
+                y += 22;
+                const aggCols = [
+                    { key: 'model', label: 'Model', w: 120, align: 'left', bold: true },
+                    { key: 'conc', label: 'Concurrency', w: 60, align: 'right' },
+                    { key: 'wall', label: 'Wall time', w: 56, align: 'right' },
+                    { key: 'agg', label: 'Aggregate tok/s', w: 78, align: 'right' },
+                    { key: 'ttft', label: 'Median TTFT', w: 66, align: 'right' },
+                    { key: 'decode', label: 'Median decode', w: 72, align: 'right' },
+                    { key: 'served', label: 'Served by', w: 100, align: 'left', grow: true },
+                    { key: 'okfail', label: 'OK / failed', w: 60, align: 'right' }
+                ];
+                const aggTableRows = aggRows.map(a => ({
+                    values: {
+                        model: a.model,
+                        conc: 'x' + a.concurrency,
+                        wall: a.wallSeconds.toFixed(1) + ' s',
+                        agg: a.aggregateTokensPerSecond.toFixed(2),
+                        ttft: fmtMs(a.medianTtftMs),
+                        decode: fmtTps(a.medianDecodeTokensPerSecond),
+                        served: Object.entries(a.servedByCounts || {}).map(([k, v]) => k + ' x' + v).join(', ') || '—',
+                        okfail: a.successes + ' / ' + a.failures
+                    },
+                    color: { okfail: a.failures > 0 ? RED : GREEN }
+                }));
+                y = drawTable('Aggregate throughput', aggCols, aggTableRows, y);
+            }
 
             // ---- Model responses (last pages, from the last run) ----
             const responded = (lastRun || []).filter(r => r && (r.response || !r.success));
@@ -1477,7 +1932,7 @@
                     doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
                     doc.text(pdfClip(doc, r.model, CONTENT_W - 150), MARGIN + 8, y + 13);
                     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-                    doc.text(r.success ? (r.tokensPerSecond.toFixed(2) + ' t/s · ' + r.totalTokens + ' tok') : 'Failed',
+                    doc.text(r.success ? (r.tokensPerSecond.toFixed(2) + ' t/s · ' + r.totalTokens + ' tok' + (r?.servedBy ? ' · via ' + r.servedBy : '')) : 'Failed',
                         MARGIN + CONTENT_W - 8, y + 13, { align: 'right' });
                     y += 28;
 
@@ -1615,10 +2070,18 @@
             const progressStatus = document.getElementById('progressStatus');
             clearBenchmarkAlert();
 
+            // Concurrency 1..16 and the stream toggle travel in the POST body.
+            const concurrencyEl = document.getElementById('concurrencySelect');
+            const concurrency = Math.min(16, Math.max(1, parseInt(concurrencyEl?.value, 10) || 1));
+            const streamEl = document.getElementById('streamToggle');
+            const stream = streamEl ? !!streamEl.checked : true;
+
             try {
-                progressStatus.textContent = `Benchmarking ${selectedModels.length} model(s)…`;
+                progressStatus.textContent = concurrency > 1
+                    ? `Benchmarking ${selectedModels.length} model(s) × ${concurrency} concurrent requests…`
+                    : `Benchmarking ${selectedModels.length} model(s)…`;
                 progressFill.style.width = '10%';
-                const response = await fetch('/api/run-benchmark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ models: selectedModels, ...promptConfig }) });
+                const response = await fetch('/api/run-benchmark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ models: selectedModels, ...promptConfig, concurrency, stream }) });
                 if (!response.ok) {
                     let errorMessage = 'Failed to run benchmark';
                     try { const err = await response.json(); errorMessage = err.error || errorMessage; }
@@ -1626,14 +2089,28 @@
                     throw new Error(errorMessage);
                 }
                 const result = await response.json();
-                lastRun = Array.isArray(result.results) ? result.results : [];
+                const rawRows = Array.isArray(result?.results) ? result.results : [];
+                lastRun = rawRows.map(normalizeResult);
+                // Stamp arrival time so these aggregates outrank stored history for
+                // the same model × concurrency (the POST response carries no timestamp).
+                const arrived = new Date().toISOString();
+                lastAggregates = (Array.isArray(result?.aggregates) ? result.aggregates : [])
+                    .map(normalizeAggregate)
+                    .map(a => ({ ...a, timestamp: a.timestamp || arrived }));
                 progressFill.style.width = '100%';
                 progressStatus.textContent = 'Benchmark completed.';
-                const successCount = result.results.filter(r => r.success).length;
-                const failedCount = result.results.length - successCount;
-                showBenchmarkAlert(`Benchmark completed — ${successCount} successful${failedCount > 0 ? `, ${failedCount} failed` : ''}.`, 'success');
+                const successCount = lastRun.filter(r => r.success).length;
+                const failedCount = lastRun.length - successCount;
+                const served = [...new Set(lastRun.map(r => r?.servedBy).filter(Boolean))];
+                const bestAgg = lastAggregates.filter(a => a.aggregateTokensPerSecond > 0)
+                    .reduce((m, a) => (!m || a.aggregateTokensPerSecond > m.aggregateTokensPerSecond) ? a : m, null);
+                let summary = `Benchmark completed — ${successCount} successful${failedCount > 0 ? `, ${failedCount} failed` : ''}`;
+                if (bestAgg && bestAgg.concurrency > 1) summary += ` · ${bestAgg.model} reached ${bestAgg.aggregateTokensPerSecond.toFixed(1)} aggregate tok/s at ×${bestAgg.concurrency}`;
+                if (served.length) summary += ` · served by ${served.join(', ')}`;
+                showBenchmarkAlert(summary + '.', 'success');
                 renderResponseComparison();
-                setTimeout(() => { loadResults(); loadSystemSpecs(); }, 800);
+                renderAggregates();
+                setTimeout(() => { loadResults(); loadSystemSpecs(); loadAggregates(); loadTarget(); }, 800);
             } catch (error) {
                 progressFill.style.width = '100%';
                 progressStatus.textContent = 'Benchmark failed.';
@@ -1649,6 +2126,7 @@
             document.documentElement.dataset.theme = theme;
             try { localStorage.setItem('lb-theme', theme); } catch (e) {}
             if (lastResults.length) displayChart(lastResults);
+            renderAggregates();
         }
         document.getElementById('themeToggle').addEventListener('click', () => {
             applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
@@ -1659,6 +2137,7 @@
                 if (!localStorage.getItem('lb-theme')) {
                     document.documentElement.dataset.theme = e.matches ? 'dark' : 'light';
                     if (lastResults.length) displayChart(lastResults);
+                    renderAggregates();
                 }
             });
         } catch (e) { /* matchMedia unavailable — stay on initial theme */ }
@@ -1689,9 +2168,11 @@
 
         // Bootstrap
         applyDocsRoute();
+        loadTarget();
         loadMeta().then(loadAvailableModels);
         loadSystemSpecs();
         loadResults();
+        loadAggregates();
         loadPrompts();
     </script>
 </body>
