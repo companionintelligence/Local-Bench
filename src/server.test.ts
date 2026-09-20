@@ -1,45 +1,30 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import axios from 'axios';
-import { server, resetTargetState, normaliseBaseUrl, getTargetUrl, getTargetPath, BenchmarkAggregate } from './server';
+import { server, resetTargetState } from './server';
 import * as database from './database';
 import * as benchmark from './benchmark';
-import { BenchmarkResult } from './database';
+import { BenchmarkResult, BenchmarkAggregate } from './benchmark';
+import { BenchmarkResultRecord } from './database';
 
 // Mock fs module
 jest.mock('fs');
 const mockedFs = fs as jest.Mocked<typeof fs>;
 
-// Mock database module. The automock covers everything this branch exports;
-// the two aggregate functions arrive with the db branch, so they are declared
-// here explicitly (harmless once the automock also produces them).
-jest.mock('./database', () => ({
-  ...(jest.createMockFromModule('./database') as object),
-  saveBenchmarkAggregate: jest.fn(),
-  getBenchmarkAggregates: jest.fn()
-}));
-type DatabaseWithAggregates = typeof database & {
-  saveBenchmarkAggregate: (aggregate: BenchmarkAggregate, systemSpecsId?: number) => void;
-  getBenchmarkAggregates: (limit?: number) => BenchmarkAggregate[];
-};
-const mockedDatabase = database as jest.Mocked<DatabaseWithAggregates>;
+// Mock database module
+jest.mock('./database');
+const mockedDatabase = database as jest.Mocked<typeof database>;
 
-// Mock the benchmark runner and the save helpers, but keep the real prompt list
-// and model catalog so /api/prompts and /api/models exercise real data.
+// Mock the benchmark runner and the save helpers, but keep the real prompt
+// list, model catalog and target resolver so /api/prompts, /api/models and
+// /api/target exercise real code (axios is mocked underneath).
 jest.mock('./benchmark', () => ({
   ...jest.requireActual('./benchmark'),
   benchmarkModelConcurrently: jest.fn(),
   saveResultsToCSV: jest.fn(),
   saveResultsToDatabase: jest.fn()
 }));
-type BenchmarkWithConcurrency = typeof benchmark & {
-  benchmarkModelConcurrently: (
-    modelName: string,
-    customPrompt: string | undefined,
-    options: { concurrency: number; stream: boolean }
-  ) => Promise<{ results: BenchmarkResult[]; aggregate: BenchmarkAggregate }>;
-};
-const mockedBenchmark = benchmark as jest.Mocked<BenchmarkWithConcurrency>;
+const mockedBenchmark = benchmark as jest.Mocked<typeof benchmark>;
 
 // Mock axios
 jest.mock('axios');
@@ -535,7 +520,7 @@ describe('Server Module', () => {
 
     describe('GET /api/results-with-specs', () => {
       it('should return results with system specs', (done) => {
-        const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
+        const mockResults: Array<BenchmarkResultRecord & { systemSpecs?: any }> = [
           {
             id: 1,
             model: 'llama2',
@@ -574,7 +559,7 @@ describe('Server Module', () => {
       });
 
       it('should handle limit parameter', (done) => {
-        const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
+        const mockResults: Array<BenchmarkResultRecord & { systemSpecs?: any }> = [
           {
             id: 1,
             model: 'llama2',
@@ -794,33 +779,6 @@ describe('Server Module', () => {
     });
   });
 
-  describe('Target resolution helpers', () => {
-    it('normalises trailing slashes and a trailing /v1', () => {
-      expect(normaliseBaseUrl('http://host:8000/v1')).toBe('http://host:8000');
-      expect(normaliseBaseUrl('http://host:8000/v1/')).toBe('http://host:8000');
-      expect(normaliseBaseUrl('http://host:8000/')).toBe('http://host:8000');
-      expect(normaliseBaseUrl('  http://host:11434  ')).toBe('http://host:11434');
-      expect(normaliseBaseUrl('http://hub:5002/api/inference/pool/')).toBe('http://hub:5002/api/inference/pool');
-    });
-
-    it('defaults to a local Ollama', () => {
-      expect(getTargetUrl()).toBe('http://localhost:11434');
-      expect(getTargetPath(getTargetUrl())).toBe('direct');
-    });
-
-    it('uses CI_LLM_BASE_URL when OLLAMA_API_URL is unset', () => {
-      process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
-      expect(getTargetUrl()).toBe('http://strix:8000');
-    });
-
-    it('lets an explicit OLLAMA_API_URL win over CI_LLM_BASE_URL', () => {
-      process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
-      process.env.OLLAMA_API_URL = 'http://100.115.174.32:5002/api/inference/pool';
-      expect(getTargetUrl()).toBe('http://100.115.174.32:5002/api/inference/pool');
-      expect(getTargetPath(getTargetUrl())).toBe('pool');
-    });
-  });
-
   describe('GET /api/target', () => {
     function getTarget(done: () => void, assert: (body: any) => void): void {
       const req = { method: 'GET', url: '/api/target' } as http.IncomingMessage;
@@ -861,12 +819,19 @@ describe('Server Module', () => {
       });
     });
 
-    it('marks the served-by header as seen once a probe response carries it', (done) => {
+    it('marks the served-by header as seen once a model listing carries it', (done) => {
       process.env.OLLAMA_API_URL = 'http://hub:5002/api/inference/pool';
       mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: { 'x-hub-pool-served-by': 'local' } });
-      getTarget(done, (body) => {
-        expect(body.pool).toEqual({ servedByHeaderSeen: true });
-      });
+      const modelsReq = { method: 'GET', url: '/api/models' } as http.IncomingMessage;
+      const modelsRes = {
+        writeHead: jest.fn(),
+        end: jest.fn(() => {
+          getTarget(done, (body) => {
+            expect(body.pool).toEqual({ servedByHeaderSeen: true });
+          });
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', modelsReq, modelsRes);
     });
 
     it('falls back to the openai transport when /api/tags is not there', (done) => {
@@ -965,14 +930,17 @@ describe('Server Module', () => {
 
   describe('GET /api/aggregates', () => {
     it('returns recent aggregates and forwards the limit', (done) => {
-      const rows = [makeAggregate({ batchId: 'b1' }), makeAggregate({ batchId: 'b2', concurrency: 4 })];
-      mockedDatabase.getBenchmarkAggregates.mockReturnValue(rows);
+      const rows = [
+        { id: 1, timestamp: '2026-09-20T10:00:00.000Z', ...makeAggregate({ batchId: 'b1' }) },
+        { id: 2, timestamp: '2026-09-20T10:05:00.000Z', ...makeAggregate({ batchId: 'b2', concurrency: 4 }) }
+      ];
+      mockedDatabase.getRecentAggregates.mockReturnValue(rows);
 
       const req = { method: 'GET', url: '/api/aggregates?limit=25' } as http.IncomingMessage;
       const res = {
         writeHead: jest.fn(),
         end: jest.fn((data) => {
-          expect(mockedDatabase.getBenchmarkAggregates).toHaveBeenCalledWith(25);
+          expect(mockedDatabase.getRecentAggregates).toHaveBeenCalledWith(25);
           expect(res.writeHead).toHaveBeenCalledWith(200, {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*'
@@ -985,12 +953,12 @@ describe('Server Module', () => {
     });
 
     it('ignores a non-numeric limit', (done) => {
-      mockedDatabase.getBenchmarkAggregates.mockReturnValue([]);
+      mockedDatabase.getRecentAggregates.mockReturnValue([]);
       const req = { method: 'GET', url: '/api/aggregates?limit=abc' } as http.IncomingMessage;
       const res = {
         writeHead: jest.fn(),
         end: jest.fn(() => {
-          expect(mockedDatabase.getBenchmarkAggregates).toHaveBeenCalledWith(undefined);
+          expect(mockedDatabase.getRecentAggregates).toHaveBeenCalledWith(undefined);
           done();
         })
       } as unknown as http.ServerResponse;
@@ -998,7 +966,7 @@ describe('Server Module', () => {
     });
 
     it('returns 500 when the table cannot be read', (done) => {
-      mockedDatabase.getBenchmarkAggregates.mockImplementation(() => {
+      mockedDatabase.getRecentAggregates.mockImplementation(() => {
         throw new Error('no such table');
       });
       const req = { method: 'GET', url: '/api/aggregates' } as http.IncomingMessage;
@@ -1047,18 +1015,18 @@ describe('Server Module', () => {
       const rows = [makeResult()];
       const aggregate = makeAggregate();
       mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({ results: rows, aggregate });
-      mockedDatabase.getLatestSystemSpecs.mockReturnValue({ id: 7 } as any);
 
       runBenchmark({ models: ['llama2'], promptId: TEST_PROMPT_ID }, done, (status, headers, body) => {
         expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledTimes(1);
         expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith(
           'llama2',
           expect.any(String),
-          { concurrency: 1, stream: true }
+          1,
+          { stream: true }
         );
         expect(mockedBenchmark.saveResultsToCSV).toHaveBeenCalledWith(rows);
-        expect(mockedBenchmark.saveResultsToDatabase).toHaveBeenCalledWith(rows);
-        expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledWith(aggregate, 7);
+        // Rows and their aggregate go to the database in one call so they share a specs row.
+        expect(mockedBenchmark.saveResultsToDatabase).toHaveBeenCalledWith(rows, [aggregate]);
         expect(status).toBe(200);
         expect(headers).toEqual({ 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         expect(body).toEqual({ success: true, results: rows, aggregates: [aggregate] });
@@ -1066,23 +1034,22 @@ describe('Server Module', () => {
     });
 
     it('passes concurrency and stream through and returns one aggregate per model', (done) => {
-      mockedBenchmark.benchmarkModelConcurrently.mockImplementation(async (model, _prompt, options) => ({
-        results: Array.from({ length: options.concurrency }, (_, i) => makeResult({ model, batchId: `${model}-batch`, concurrency: options.concurrency, servedBy: i % 2 ? 'peer-a' : 'local' })),
-        aggregate: makeAggregate({ model, batchId: `${model}-batch`, concurrency: options.concurrency })
+      mockedBenchmark.benchmarkModelConcurrently.mockImplementation(async (model, _prompt, concurrency) => ({
+        results: Array.from({ length: concurrency }, (_, i) => makeResult({ model, batchId: `${model}-batch`, concurrency, servedBy: i % 2 ? 'peer-a' : 'local' })),
+        aggregate: makeAggregate({ model, batchId: `${model}-batch`, concurrency })
       }));
-      mockedDatabase.getLatestSystemSpecs.mockReturnValue(null);
 
       runBenchmark({ models: ['llama2', 'qwen3:8b'], customPrompt: '  hello  ', concurrency: 4, stream: false }, done, (status, _headers, body) => {
         expect(status).toBe(200);
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(1, 'llama2', 'hello', { concurrency: 4, stream: false });
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', { concurrency: 4, stream: false });
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(1, 'llama2', 'hello', 4, { stream: false });
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', 4, { stream: false });
         expect(body.results).toHaveLength(8);
         expect(body.aggregates.map((a: BenchmarkAggregate) => a.model)).toEqual(['llama2', 'qwen3:8b']);
-        expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledTimes(2);
-        expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledWith(expect.objectContaining({ model: 'qwen3:8b' }), undefined);
-        // Everything went to the database in one call, so specs are shared.
+        // Everything went to the database in one call, so rows and aggregates share specs.
         expect(mockedBenchmark.saveResultsToDatabase).toHaveBeenCalledTimes(1);
-        expect(mockedBenchmark.saveResultsToDatabase.mock.calls[0][0]).toHaveLength(8);
+        const [savedRows, savedAggregates] = mockedBenchmark.saveResultsToDatabase.mock.calls[0];
+        expect(savedRows).toHaveLength(8);
+        expect(savedAggregates!.map(a => a.model)).toEqual(['llama2', 'qwen3:8b']);
       });
     });
 
@@ -1091,7 +1058,6 @@ describe('Server Module', () => {
         results: [makeResult({ servedBy: 'peer-a', backend: 'ollama' })],
         aggregate: makeAggregate({ servedByCounts: { 'peer-a': 1 } })
       });
-      mockedDatabase.getLatestSystemSpecs.mockReturnValue(null);
       mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
 
       runBenchmark({ models: ['llama2'] }, () => {
@@ -1120,10 +1086,9 @@ describe('Server Module', () => {
 
     it('accepts concurrency at the 16 ceiling', (done) => {
       mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({ results: [], aggregate: makeAggregate({ concurrency: 16 }) });
-      mockedDatabase.getLatestSystemSpecs.mockReturnValue(null);
       runBenchmark({ models: ['llama2'], concurrency: 16 }, done, (status) => {
         expect(status).toBe(200);
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith('llama2', undefined, { concurrency: 16, stream: true });
+        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith('llama2', undefined, 16, { stream: true });
       });
     });
 
@@ -1147,7 +1112,7 @@ describe('Server Module', () => {
         expect(status).toBe(500);
         expect(headers).toEqual({ 'Content-Type': 'application/json' });
         expect(body.error).toBe('Failed to run benchmark: pool 502: no candidate');
-        expect(mockedDatabase.saveBenchmarkAggregate).not.toHaveBeenCalled();
+        expect(mockedBenchmark.saveResultsToDatabase).not.toHaveBeenCalled();
       });
     });
   });
@@ -1179,7 +1144,7 @@ describe('Server Module', () => {
     });
 
     it('should handle invalid limit parameter', (done) => {
-      const mockResults: Array<BenchmarkResult & { systemSpecs?: any }> = [
+      const mockResults: Array<BenchmarkResultRecord & { systemSpecs?: any }> = [
         {
           id: 1,
           model: 'llama2',

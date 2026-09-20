@@ -10,73 +10,45 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import { SystemSpecs } from './systemSpecs';
+import type { BenchmarkResult, BenchmarkAggregate } from './benchmark';
 
-export type BenchmarkTransport = 'ollama' | 'openai';
-export type BenchmarkPath = 'direct' | 'pool';
+/**
+ * The result fields that arrived with CI-Hub pool benchmarking. src/benchmark.ts
+ * owns the row shape (`BenchmarkResult`); these are the columns that are NULL on
+ * rows written before they existed, so the readers hand them back as null.
+ */
+export type PoolMetadataField =
+  | 'transport'
+  | 'path'
+  | 'targetUrl'
+  | 'servedBy'
+  | 'backend'
+  | 'requestId'
+  | 'ttftMs'
+  | 'promptTokens'
+  | 'loadMs'
+  | 'promptEvalMs'
+  | 'evalMs'
+  | 'decodeTokensPerSecond'
+  | 'concurrency'
+  | 'batchId';
 
-export interface BenchmarkResult {
+/**
+ * A benchmark_results row as stored and read back. Identical to the runner's
+ * `BenchmarkResult` except that the pool metadata may be null (absent column
+ * value) and the row carries its id and system_specs_id. `prompt`/`response`
+ * are not persisted.
+ */
+export type BenchmarkResultRecord = {
+  [K in keyof BenchmarkResult]: K extends PoolMetadataField ? BenchmarkResult[K] | null : BenchmarkResult[K];
+} & {
   id?: number;
-  model: string;
-  tokensPerSecond: number;
-  totalTokens: number;
-  durationSeconds: number;
-  timestamp: string;
-  success: boolean;
-  error?: string;
   systemSpecsId?: number;
-  // Hub-pool / transport metadata. All optional so rows written before these
-  // columns existed still type-check; the reader returns null for absent ones.
-  /** Which wire protocol was used. */
-  transport?: BenchmarkTransport | null;
-  /** 'pool' when the target was a CI-Hub pool proxy (URL or X-Hub-Pool-Served-By). */
-  path?: BenchmarkPath | null;
-  /** The base URL that was hit. */
-  targetUrl?: string | null;
-  /** X-Hub-Pool-Served-By */
-  servedBy?: string | null;
-  /** X-Hub-Pool-Backend */
-  backend?: string | null;
-  /** X-Hub-Pool-Request-Id */
-  requestId?: string | null;
-  /** Wall ms from request start to first content chunk (streaming only). */
-  ttftMs?: number | null;
-  /** prompt_eval_count / usage.prompt_tokens */
-  promptTokens?: number | null;
-  /** load_duration / 1e6 (ollama only) */
-  loadMs?: number | null;
-  /** prompt_eval_duration / 1e6 (ollama only) */
-  promptEvalMs?: number | null;
-  /** eval_duration / 1e6 (ollama only) */
-  evalMs?: number | null;
-  /** Engine decode speed, distinct from the wall-clock tokensPerSecond. */
-  decodeTokensPerSecond?: number | null;
-  /** How many requests ran at once in the batch this row belongs to (1 for a single run). */
-  concurrency?: number | null;
-  /** Shared by all rows of one concurrent batch. */
-  batchId?: string | null;
-}
-
-/** Aggregate over one concurrent batch, as computed by src/benchmark.ts. */
-export interface BenchmarkAggregate {
-  batchId: string;
-  model: string;
-  concurrency: number;
-  wallSeconds: number;
-  /** sum(totalTokens) / wallSeconds */
-  aggregateTokensPerSecond: number;
-  medianTtftMs?: number;
-  medianDecodeTokensPerSecond?: number;
-  servedByCounts: Record<string, number>;
-  backendCounts: Record<string, number>;
-  successes: number;
-  failures: number;
-}
+};
 
 /** A benchmark_aggregates row as read back from the database. */
 export interface BenchmarkAggregateRecord extends BenchmarkAggregate {
   id: number;
-  medianTtftMs: number | undefined;
-  medianDecodeTokensPerSecond: number | undefined;
   timestamp: string;
   systemSpecsId?: number;
 }
@@ -295,7 +267,7 @@ function optNum(value: number | null | undefined): number | null {
 /**
  * Save benchmark results to database
  */
-export function saveBenchmarkResults(results: BenchmarkResult[], systemSpecsId?: number): void {
+export function saveBenchmarkResults(results: BenchmarkResultRecord[], systemSpecsId?: number): void {
   const database = getDatabase();
 
   const stmt = database.prepare(`
@@ -366,7 +338,7 @@ function benchmarkResultColumns(prefix = ''): string {
 /**
  * Get all benchmark results
  */
-export function getAllBenchmarkResults(): BenchmarkResult[] {
+export function getAllBenchmarkResults(): BenchmarkResultRecord[] {
   const database = getDatabase();
 
   const stmt = database.prepare(`
@@ -386,7 +358,7 @@ export function getAllBenchmarkResults(): BenchmarkResult[] {
 /**
  * Get benchmark results by model
  */
-export function getBenchmarkResultsByModel(model: string): BenchmarkResult[] {
+export function getBenchmarkResultsByModel(model: string): BenchmarkResultRecord[] {
   const database = getDatabase();
 
   const stmt = database.prepare(`
@@ -462,7 +434,7 @@ export function getAllSystemSpecs(): SystemSpecsRecord[] {
 /**
  * Get benchmark results with system specs
  */
-export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkResult & { systemSpecs?: SystemSpecsRecord }> {
+export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkResultRecord & { systemSpecs?: SystemSpecsRecord }> {
   const database = getDatabase();
 
   const query = `
@@ -487,9 +459,9 @@ export function getBenchmarkResultsWithSpecs(limit?: number): Array<BenchmarkRes
   return mapResultsWithSpecs(rows);
 }
 
-function mapResultsWithSpecs(rows: any[]): Array<BenchmarkResult & { systemSpecs?: SystemSpecsRecord }> {
+function mapResultsWithSpecs(rows: any[]): Array<BenchmarkResultRecord & { systemSpecs?: SystemSpecsRecord }> {
   return rows.map(row => {
-    const result: BenchmarkResult & { systemSpecs?: SystemSpecsRecord } = {
+    const result: BenchmarkResultRecord & { systemSpecs?: SystemSpecsRecord } = {
       id: row.id,
       model: row.model,
       tokensPerSecond: row.tokensPerSecond,

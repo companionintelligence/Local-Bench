@@ -569,6 +569,33 @@ describe('Benchmark Module', () => {
       expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Benchmark results saved to database'));
     });
 
+    it('should save each batch aggregate against the same specs row as the results', async () => {
+      mockedSystemSpecs.getSystemSpecs.mockResolvedValue({} as any);
+      mockedSystemSpecs.formatSystemSpecs.mockReturnValue('');
+      mockedDatabase.saveSystemSpecs.mockReturnValue(42);
+      const results: BenchmarkResult[] = [
+        { model: 'llama2', tokensPerSecond: 40, totalTokens: 80, durationSeconds: 2, timestamp: 't', success: true, batchId: 'b1', concurrency: 2 }
+      ];
+      const aggregates = [
+        computeAggregate(results, 2),
+        computeAggregate([{ ...results[0], model: 'qwen3:8b', batchId: 'b2' }], 3)
+      ];
+
+      await expect(saveResultsToDatabase(results, aggregates)).resolves.toBe(42);
+
+      expect(mockedDatabase.saveBenchmarkResults).toHaveBeenCalledWith(results, 42);
+      expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenCalledTimes(2);
+      expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenNthCalledWith(1, aggregates[0], 42);
+      expect(mockedDatabase.saveBenchmarkAggregate).toHaveBeenNthCalledWith(2, aggregates[1], 42);
+    });
+
+    it('should save no aggregates when none are given', async () => {
+      mockedSystemSpecs.getSystemSpecs.mockResolvedValue({} as any);
+      mockedSystemSpecs.formatSystemSpecs.mockReturnValue('');
+      await saveResultsToDatabase([]);
+      expect(mockedDatabase.saveBenchmarkAggregate).not.toHaveBeenCalled();
+    });
+
     it('should handle database errors gracefully', async () => {
       mockedDatabase.initDatabase.mockImplementation(() => {
         throw new Error('Database initialization failed');

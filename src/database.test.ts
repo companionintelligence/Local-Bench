@@ -11,9 +11,9 @@ import {
   getDatabase,
   saveBenchmarkAggregate,
   getRecentAggregates,
-  BenchmarkResult,
-  BenchmarkAggregate
+  BenchmarkResultRecord
 } from './database';
+import { BenchmarkAggregate } from './benchmark';
 import { SystemSpecs } from './systemSpecs';
 import { DatabaseSync } from 'node:sqlite';
 import * as fs from 'fs';
@@ -63,7 +63,7 @@ function columnNames(db: DatabaseSync, table: string): string[] {
 }
 
 /** A fully-populated pool row, as benchmarkModel would produce for a streamed pool request. */
-function fullPoolResult(overrides: Partial<BenchmarkResult> = {}): BenchmarkResult {
+function fullPoolResult(overrides: Partial<BenchmarkResultRecord> = {}): BenchmarkResultRecord {
   return {
     model: 'qwen3:8b',
     tokensPerSecond: 40.2,
@@ -176,7 +176,7 @@ describe('Database Module', () => {
     it('should save benchmark results', () => {
       initDatabase();
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -214,7 +214,7 @@ describe('Database Module', () => {
       
       const systemSpecsId = saveSystemSpecs(specs);
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -231,7 +231,7 @@ describe('Database Module', () => {
     it('should save failed benchmark results', () => {
       initDatabase();
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'failed-model',
           tokensPerSecond: 0,
@@ -259,7 +259,7 @@ describe('Database Module', () => {
     it('should return all benchmark results', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -350,7 +350,7 @@ describe('Database Module', () => {
       
       const systemSpecsId = saveSystemSpecs(specs);
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -374,7 +374,7 @@ describe('Database Module', () => {
     it('should limit results when specified', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'model1',
           tokensPerSecond: 45.5,
@@ -413,7 +413,7 @@ describe('Database Module', () => {
     it('should return results for specific model', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -452,7 +452,7 @@ describe('Database Module', () => {
     it('should return empty array for unknown model', () => {
       initDatabase();
       
-      const testResults: BenchmarkResult[] = [
+      const testResults: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,
@@ -598,7 +598,7 @@ describe('Database Module', () => {
     it('should handle results without system specs', () => {
       initDatabase();
       
-      const results: BenchmarkResult[] = [
+      const results: BenchmarkResultRecord[] = [
         {
           model: 'llama2',
           tokensPerSecond: 45.5,

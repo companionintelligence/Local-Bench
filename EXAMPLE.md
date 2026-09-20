@@ -30,32 +30,58 @@ Expected output:
 
 ```
 === Local LLM Benchmark Tool ===
-Ollama API URL: http://localhost:11434
-
-Models to benchmark: gemma3:4b, qwen3:8b, llama3.1:8b
+Target: http://localhost:11434 (ollama, direct)
 ✓ Connected to Ollama API
 
-Benchmarking gemma3:4b...
-  ✓ Completed in 5.25s
-  ✓ Generated 412 tokens
-  ✓ Speed: 78.42 tokens/second
+Models to benchmark: gemma3:4b, qwen3:8b, llama3.1:8b
+Concurrency: 1, streaming: on
 
-Benchmarking qwen3:8b...
-  ✓ Completed in 9.52s
-  ✓ Generated 498 tokens
-  ✓ Speed: 52.31 tokens/second
+Benchmarking gemma3:4b (1 concurrent, streaming, ollama → http://localhost:11434)...
+  ✓ gemma3:4b: 5.25s, 412 tokens, 78.42 tokens/second
+    78.42 tok/s wall, 84.10 tok/s decode, TTFT 310ms
+  = aggregate 78.42 tok/s over 5.25s, 1/1 ok, median TTFT 310ms, median decode 84.1 tok/s
+
+Benchmarking qwen3:8b (1 concurrent, streaming, ollama → http://localhost:11434)...
+  ✓ qwen3:8b: 9.52s, 498 tokens, 52.31 tokens/second
+    52.31 tok/s wall, 55.02 tok/s decode, TTFT 412ms
+  = aggregate 52.31 tok/s over 9.52s, 1/1 ok, median TTFT 412ms, median decode 55.02 tok/s
 
 Results saved to benchmark_results.csv
+System specs saved to database (ID: 1)
+Benchmark results saved to database
+3 batch aggregates saved to database
 
 === Benchmark Summary ===
 
 Ranking (by tokens/second):
-  1. gemma3:4b: 78.42 tokens/s
-  2. qwen3:8b: 52.31 tokens/s
-  3. llama3.1:8b: 49.87 tokens/s
+  1. gemma3:4b: aggregate 78.42 tok/s over 5.25s, 1/1 ok, median TTFT 310ms, median decode 84.1 tok/s
+  2. qwen3:8b: aggregate 52.31 tok/s over 9.52s, 1/1 ok, median TTFT 412ms, median decode 55.02 tok/s
+  3. llama3.1:8b: aggregate 49.87 tok/s over 10.10s, 1/1 ok, median TTFT 380ms, median decode 52.4 tok/s
 
-Done! Open the dashboard to view the results.
+Done! Open index.html in a browser to view the results.
 ```
+
+Against a CI-Hub pool, each row also names the node and engine that served it, and `--concurrency=N` makes the aggregate line meaningful:
+
+```bash
+OLLAMA_API_URL=http://100.115.174.32:5002/api/inference/pool node dist/benchmark.js gemma3:1b --concurrency=4
+```
+
+```
+Target: http://100.115.174.32:5002/api/inference/pool (ollama, pool)
+Benchmarking gemma3:1b (4 concurrent, streaming, ollama → http://100.115.174.32:5002/api/inference/pool)...
+  ✓ gemma3:1b: 2.13s, 107 tokens, 50.19 tokens/second
+  ✓ gemma3:1b: 3.73s, 109 tokens, 29.25 tokens/second
+  ✓ gemma3:1b: 5.88s, 84 tokens, 14.27 tokens/second
+  ✓ gemma3:1b: 7.92s, 103 tokens, 13.01 tokens/second
+    13.01 tok/s wall, 150.43 tok/s decode, TTFT 7231ms, served by beta-1.capybara-ulmer.ts.net, backend ollama
+    50.19 tok/s wall, 89.94 tok/s decode, TTFT 945ms, served by core-4.capybara-ulmer.ts.net, backend ollama
+    14.27 tok/s wall, 52.26 tok/s decode, TTFT 4281ms, served by fzzy.capybara-ulmer.ts.net, backend ollama
+    29.25 tok/s wall, 95.8 tok/s decode, TTFT 2591ms, served by core-17.capybara-ulmer.ts.net, backend ollama
+  = aggregate 50.92 tok/s over 7.92s, 4/4 ok, median TTFT 3436ms, median decode 92.87 tok/s, served by beta-1.capybara-ulmer.ts.net×1 core-4.capybara-ulmer.ts.net×1 fzzy.capybara-ulmer.ts.net×1 core-17.capybara-ulmer.ts.net×1, backends ollama×4
+```
+
+See [Benchmarking a CI-Hub pool](README.md#benchmarking-a-ci-hub-pool) in the README for what TTFT, decode, and aggregate mean.
 
 ## Step 2: View results in the dashboard
 
@@ -80,6 +106,12 @@ Run more benchmarks (CLI or the **Run benchmark** button in the UI), then click 
 ```bash
 # Point at a non-default Ollama
 OLLAMA_API_URL=http://192.168.1.100:11434 npm run benchmark
+
+# Point at a CI-Hub pool, four requests at a time
+OLLAMA_API_URL=http://hub.example.ts.net:5002/api/inference/pool node dist/benchmark.js gemma3:4b --concurrency=4
+
+# Point at a vLLM / Lemonade / Lucebox engine directly (OpenAI-compatible, no /api/generate)
+CI_LLM_BASE_URL=http://strix:8000/v1 node dist/benchmark.js Qwen/Qwen3-8B
 
 # Custom dashboard port
 PORT=8080 npm start

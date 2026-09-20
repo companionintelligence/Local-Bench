@@ -3,16 +3,27 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as database from './database';
-import * as benchmarkCore from './benchmark';
-import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase, BenchmarkResult } from './database';
-import { getOllamaModelCatalog, saveResultsToCSV, saveResultsToDatabase, TEST_PROMPTS, INTELLIGENCE_INDEX_SOURCE, INTELLIGENCE_INDEX_URL, INTELLIGENCE_INDEX_AS_OF } from './benchmark';
+import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase, getRecentAggregates } from './database';
+import {
+  BenchmarkResult,
+  BenchmarkAggregate,
+  MAX_CONCURRENCY,
+  benchmarkModelConcurrently,
+  getConfiguredBaseUrl,
+  getOllamaModelCatalog,
+  resetTargetCache,
+  resolveTarget,
+  saveResultsToCSV,
+  saveResultsToDatabase,
+  TEST_PROMPTS,
+  INTELLIGENCE_INDEX_SOURCE,
+  INTELLIGENCE_INDEX_URL,
+  INTELLIGENCE_INDEX_AS_OF
+} from './benchmark';
 import axios from 'axios';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const DEFAULT_OLLAMA_API_URL = 'http://localhost:11434';
 const PROBE_TIMEOUT_MS = 10000;
-const MAX_CONCURRENCY = 16;
 
 // Root directory for static file serving. Requests are resolved relative to this
 // and must stay inside it, so path-traversal attempts (e.g. /../../etc/passwd)
@@ -31,54 +42,6 @@ interface BenchmarkRequest {
   stream?: boolean;
 }
 
-export type BenchTransport = 'ollama' | 'openai';
-export type BenchPath = 'direct' | 'pool';
-
-/**
- * Batch aggregate as defined by the shared Hub-pool contract. The core branch
- * exports the canonical `BenchmarkAggregate` from ./benchmark; this local copy
- * exists only so the API compiles before that branch is merged. Integrator:
- * replace with `import { BenchmarkAggregate } from './benchmark'`.
- */
-export interface BenchmarkAggregate {
-  batchId: string;
-  model: string;
-  concurrency: number;
-  wallSeconds: number;
-  aggregateTokensPerSecond: number;
-  medianTtftMs?: number;
-  medianDecodeTokensPerSecond?: number;
-  servedByCounts: Record<string, number>;
-  backendCounts: Record<string, number>;
-  successes: number;
-  failures: number;
-}
-
-/** A result row carrying the pool fields the server reads back (see contract). */
-type PoolBenchmarkResult = BenchmarkResult & { servedBy?: string };
-
-/**
- * Functions the API depends on that live on the core and db branches. They are
- * called through these declared signatures so this branch type-checks on its
- * own; the runtime binding is whatever ./benchmark and ./database export once
- * the branches are merged. Integrator: swap the casts below for named imports.
- */
-interface BenchmarkCoreModule {
-  benchmarkModelConcurrently(
-    modelName: string,
-    customPrompt: string | undefined,
-    options: { concurrency: number; stream: boolean }
-  ): Promise<{ results: PoolBenchmarkResult[]; aggregate: BenchmarkAggregate }>;
-}
-
-interface DatabaseAggregateModule {
-  saveBenchmarkAggregate(aggregate: BenchmarkAggregate, systemSpecsId?: number): void;
-  getBenchmarkAggregates(limit?: number): BenchmarkAggregate[];
-}
-
-const core = benchmarkCore as unknown as BenchmarkCoreModule;
-const aggregateDb = database as unknown as DatabaseAggregateModule;
-
 const mimeTypes: MimeTypes = {
   '.html': 'text/html',
   '.css': 'text/css',
@@ -93,42 +56,11 @@ const mimeTypes: MimeTypes = {
 };
 
 // ---------------------------------------------------------------------------
-// Target resolution
+// Target
 // ---------------------------------------------------------------------------
-
-/**
- * Strip trailing slashes and a trailing /v1 so both "http://host:8000/v1" and
- * "http://host:8000/" become "http://host:8000".
- */
-export function normaliseBaseUrl(raw: string): string {
-  let base = raw.trim().replace(/\/+$/, '');
-  if (base.toLowerCase().endsWith('/v1')) {
-    base = base.slice(0, -3).replace(/\/+$/, '');
-  }
-  return base;
-}
-
-/**
- * The base URL every request is sent to. An explicit OLLAMA_API_URL wins; a Hub
- * app otherwise gets CI_LLM_BASE_URL from its environment; the last resort is a
- * local Ollama. Read at call time so a test (or a supervisor that restarts the
- * process with new env) sees the current value.
- */
-export function getTargetUrl(): string {
-  const ollama = process.env.OLLAMA_API_URL && process.env.OLLAMA_API_URL.trim();
-  if (ollama) {
-    return normaliseBaseUrl(ollama);
-  }
-  const ciLlm = process.env.CI_LLM_BASE_URL && process.env.CI_LLM_BASE_URL.trim();
-  if (ciLlm) {
-    return normaliseBaseUrl(ciLlm);
-  }
-  return DEFAULT_OLLAMA_API_URL;
-}
-
-export function getTargetPath(url: string): BenchPath {
-  return url.includes('/inference/pool') ? 'pool' : 'direct';
-}
+// Base URL, transport probe and pool detection live in ./benchmark
+// (getConfiguredBaseUrl / resolveTarget) so /api/target can never disagree with
+// the requests the runner actually sends.
 
 function authHeaders(): Record<string, string> {
   const key = process.env.CI_LLM_API_KEY && process.env.CI_LLM_API_KEY.trim();
@@ -146,7 +78,7 @@ function noteResponseHeaders(headers: unknown): void {
   }
 }
 
-function noteResultRows(results: PoolBenchmarkResult[]): void {
+function noteResultRows(results: BenchmarkResult[]): void {
   if (results.some(r => typeof r.servedBy === 'string' && r.servedBy.length > 0)) {
     servedByHeaderSeen = true;
   }
@@ -180,35 +112,9 @@ async function fetchOpenAiModels(base: string): Promise<InstalledModel[]> {
     .map((entry: { id: string }) => ({ name: entry.id }));
 }
 
-// Transport probe cache, keyed by base URL so a changed target re-probes.
-let transportCache: { base: string; transport: BenchTransport } | null = null;
-
-/**
- * 'ollama' when the base answers /api/tags, else 'openai'. BENCH_TRANSPORT
- * forces the answer. The probe runs once per base and is cached.
- */
-export async function resolveTransport(base: string): Promise<BenchTransport> {
-  const forced = (process.env.BENCH_TRANSPORT || '').trim().toLowerCase();
-  if (forced === 'ollama' || forced === 'openai') {
-    return forced;
-  }
-  if (transportCache && transportCache.base === base) {
-    return transportCache.transport;
-  }
-  let transport: BenchTransport;
-  try {
-    await fetchOllamaTags(base);
-    transport = 'ollama';
-  } catch {
-    transport = 'openai';
-  }
-  transportCache = { base, transport };
-  return transport;
-}
-
 /** Test hook: forget the cached transport probe and the served-by observation. */
 export function resetTargetState(): void {
-  transportCache = null;
+  resetTargetCache();
   servedByHeaderSeen = false;
 }
 
@@ -219,14 +125,10 @@ export function resetTargetState(): void {
  */
 async function fetchInstalledModels(base: string): Promise<InstalledModel[]> {
   try {
-    const models = await fetchOllamaTags(base);
-    transportCache = { base, transport: 'ollama' };
-    return models;
+    return await fetchOllamaTags(base);
   } catch (tagsError) {
     try {
-      const models = await fetchOpenAiModels(base);
-      transportCache = { base, transport: 'openai' };
-      return models;
+      return await fetchOpenAiModels(base);
     } catch {
       throw tagsError;
     }
@@ -313,7 +215,7 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
       const urlParams = new URL(url, `http://localhost:${PORT}`);
       const limit = urlParams.searchParams.get('limit');
       const parsedLimit = limit ? parseInt(limit, 10) : NaN;
-      const aggregates = aggregateDb.getBenchmarkAggregates(Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined);
+      const aggregates = getRecentAggregates(Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined);
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
@@ -329,15 +231,13 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
 
   // API endpoint: What the benchmark is pointed at and how it will talk to it
   if (url === '/api/target') {
-    const targetUrl = getTargetUrl();
-    const targetPath = getTargetPath(targetUrl);
-    const transport = await resolveTransport(targetUrl);
-    const pool = targetPath === 'pool' || servedByHeaderSeen ? { servedByHeaderSeen } : null;
+    const target = await resolveTarget();
+    const pool = target.path === 'pool' || servedByHeaderSeen ? { servedByHeaderSeen } : null;
     res.writeHead(200, {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*'
     });
-    res.end(JSON.stringify({ url: targetUrl, transport, path: targetPath, pool }));
+    res.end(JSON.stringify({ url: target.url, transport: target.transport, path: target.path, pool }));
     return true;
   }
 
@@ -371,7 +271,7 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
   // an OpenAI-compatible engine); falls back to the curated catalog.
   if (url === '/api/models') {
     try {
-      const models = await fetchInstalledModels(getTargetUrl());
+      const models = await fetchInstalledModels(getConfiguredBaseUrl());
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
@@ -442,25 +342,18 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
 
           // Run benchmarks: one concurrent batch per model, models in sequence
           // so batches never contend with each other.
-          const results: PoolBenchmarkResult[] = [];
+          const results: BenchmarkResult[] = [];
           const aggregates: BenchmarkAggregate[] = [];
           for (const model of models) {
-            const batch = await core.benchmarkModelConcurrently(model, promptToUse, { concurrency, stream });
+            const batch = await benchmarkModelConcurrently(model, promptToUse, concurrency, { stream });
             results.push(...batch.results);
             aggregates.push(batch.aggregate);
           }
           noteResultRows(results);
 
-          // Save results
+          // Save results; the rows and their aggregates share one specs row.
           saveResultsToCSV(results);
-          await saveResultsToDatabase(results);
-          // saveResultsToDatabase records this run's system specs as the newest
-          // row, so the aggregates attach to the same specs as their rows.
-          const latestSpecs = getLatestSystemSpecs();
-          const systemSpecsId = latestSpecs && typeof latestSpecs.id === 'number' ? latestSpecs.id : undefined;
-          for (const aggregate of aggregates) {
-            aggregateDb.saveBenchmarkAggregate(aggregate, systemSpecsId);
-          }
+          await saveResultsToDatabase(results, aggregates);
 
           res.writeHead(200, {
             'Content-Type': 'application/json',
@@ -547,7 +440,9 @@ if (require.main === module) {
 
   server.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}/`);
-    console.log(`Target: ${getTargetUrl()} (${getTargetPath(getTargetUrl())})`);
+    resolveTarget()
+      .then(target => console.log(`Target: ${target.url} (${target.transport}, ${target.path})`))
+      .catch(error => console.error(`Target probe failed: ${(error as Error).message}`));
     console.log('Press Ctrl+C to stop the server');
   });
 }

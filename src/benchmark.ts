@@ -4,7 +4,7 @@ import axios from 'axios';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initDatabase, saveBenchmarkResults, saveSystemSpecs, BenchmarkResult as DBBenchmarkResult } from './database';
+import { initDatabase, saveBenchmarkResults, saveBenchmarkAggregate, saveSystemSpecs } from './database';
 import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
 
 // Configuration
@@ -954,9 +954,11 @@ export function saveResultsToCSV(results: BenchmarkResult[]): void {
 }
 
 /**
- * Save results to database
+ * Save results (and the batch aggregates they belong to) to the database. Both
+ * attach to one freshly recorded system-specs row so a batch and its rows can
+ * always be joined back to the machine that ran them. Returns that specs id.
  */
-export async function saveResultsToDatabase(results: BenchmarkResult[]): Promise<void> {
+export async function saveResultsToDatabase(results: BenchmarkResult[], aggregates: BenchmarkAggregate[] = []): Promise<number> {
   try {
     // Initialize database
     initDatabase();
@@ -972,6 +974,14 @@ export async function saveResultsToDatabase(results: BenchmarkResult[]): Promise
     // Save benchmark results
     saveBenchmarkResults(results, systemSpecsId);
     console.log('Benchmark results saved to database');
+
+    for (const aggregate of aggregates) {
+      saveBenchmarkAggregate(aggregate, systemSpecsId);
+    }
+    if (aggregates.length > 0) {
+      console.log(`${aggregates.length} batch aggregate${aggregates.length === 1 ? '' : 's'} saved to database`);
+    }
+    return systemSpecsId;
   } catch (error) {
     console.error('Error saving to database:', (error as Error).message);
     throw error;
@@ -1070,7 +1080,7 @@ async function main(): Promise<void> {
 
   // Save results
   saveResultsToCSV(results);
-  await saveResultsToDatabase(results);
+  await saveResultsToDatabase(results, aggregates);
 
   // Summary
   console.log('\n=== Benchmark Summary ===');
