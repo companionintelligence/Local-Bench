@@ -85,16 +85,21 @@ hazards are enumerated in that file's header comment — read it before you capt
 the per-shot loop, so its route mocks are global to the whole run. So capture twice:
 
 ```bash
-LB_CAPTURE_SCENARIO=first-run   npm run capture -- --only dashboard-hero,model-catalog,prompt-picker,prompt-library,run-controls,intelligence-index,docs
-LB_CAPTURE_SCENARIO=benchmarked npm run capture -- --only models-installed,benchmark-complete,system-specs,response-compare
+LB_CAPTURE_SCENARIO=first-run   npm run capture -- --only dashboard-hero,model-catalog,models-locked,prompt-picker,prompt-picked-code,prompt-library-collapsed,prompt-library,run-controls,intelligence-index,docs,docs-multi-agent
+LB_CAPTURE_SCENARIO=benchmarked npm run capture -- --only models-installed,benchmark-armed,benchmark-complete,system-specs,response-compare
 ```
+
+**The split is per shot, not per scene.** One scene deliberately spans both lists: `models-installed`
+cross-dissolves `models-locked` (no daemon, every card disabled) into `models-installed` (daemon up,
+the pulled models selectable), which is the same region of the same page photographed in the two
+different app states. So a shot's scenario is decided by the state it needs, not by its scene.
 
 > ⚠ **Every shot id in `storyboard.json` must appear in exactly one of those two commands.** A
 > shot in neither is never captured, and video-kit silently substitutes a branded "capture
-> pending" slate for the missing PNG — the build still goes green. Those two `--only` lists above
-> are now the only place the split is written down, so when you add a shot, add it to the matching
-> list in this README in the same PR, and check both lists against the storyboard before you
-> capture:
+> pending" slate for the missing PNG — the build still goes green. The authoritative lists are
+> `SHOTS_FIRST_RUN` / `SHOTS_BENCHMARKED` in [`stage.sh`](stage.sh) — the commands above mirror
+> them for hand runs. `stage.sh`'s `_verify_shot_coverage` checks them against the storyboard on
+> every `make.sh`, so add a new shot to **both** places in the same PR:
 >
 > ```bash
 > node -e "
@@ -137,11 +142,13 @@ statistics and throughput chart scenes.
 
 ### Two traps, if you add a shot
 
-1. **`eval` must be an expression, not a bare arrow function.** The kit runs a `before` step's
-   `eval` through `page.evaluate(string)`, which evaluates the string *as an expression*. A
-   `"() => { … }"` string therefore just constructs a function and throws it away — it never runs,
-   silently, and the shot is captured at whatever scroll position it already had. Wrap it in an
-   IIFE: `"(() => { … })()"`. Every `eval` in `storyboard.json` uses that form.
+1. **`eval` runs as an expression.** The kit passes a `before` step's `eval` to
+   `page.evaluate(string)`. Since video-kit 0.1.2 a function source is *called* as well as
+   evaluated, so both `"(() => { … })()"` and a bare `"() => { … }"` now run — older storyboard
+   entries here use the IIFE form and still work, and newer ones use a plain expression, chaining
+   statements with the comma operator when they need two. Neither needs a workaround. What still
+   fails silently is an eval that throws: the shot is then captured at whatever scroll position it
+   already had, with no error, so open the PNG.
 2. **The clock is frozen, so no timer ever fires.** `context.clock.install()` replaces
    `requestAnimationFrame`/`setTimeout`/`setInterval` with paused fakes and the kit never resumes
    them. `runBenchmark`'s deferred `loadResults()`/`loadSystemSpecs()` refresh never happens (so no
@@ -169,14 +176,15 @@ picked up automatically from `assets/audio/<sceneId>.mp3`; regenerate it from th
 
 ## What is committed
 
-`assets/shots/*.png` and `assets/audio/*.mp3` **are** committed. They are *inputs*, not output:
-they let anyone render a cut without booting the app and re-recording narration, and because
-captures are byte-stable, a diff in them means the UI genuinely changed and is reviewable as an
-image diff in the PR that moved it.
+`assets/audio/*.mp3` **is** committed — re-recording narration needs network and a TTS voice, so
+the audio is an input worth keeping. `storyboard.json`, `capture.config.mjs` and the run fixture
+are committed for the same reason: expensive or impossible to regenerate.
 
-`out/` and `build/` are not committed, and the rendered MP4s are not stored anywhere else either.
-Nothing re-captures the shots on a schedule any more — when you change a screen the video covers,
-re-run the matching capture pass yourself and commit the PNGs alongside the UI change.
+`assets/shots/*.png` is **not** committed (`video/.gitignore`). Screenshots are build outputs:
+capturing them locally takes about a minute, and a committed screenshot that nothing refreshes goes
+on looking current long after the UI has moved — worse than having none. `out/` and `build/` are not
+committed either, and the rendered MP4s are not stored anywhere. When you change a screen the video
+covers, re-run the matching capture pass and look at the PNG.
 
 See [CI-Engineering `projects/product-video-pipeline/`](https://github.com/companionintelligence/CI-Engineering/tree/main/projects/product-video-pipeline)
 for the full contract.

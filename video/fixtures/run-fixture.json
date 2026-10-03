@@ -12,8 +12,11 @@
     "specs -- display no timing at all, so they are honest without it.",
     "",
     "To add the results table, statistics and throughput chart scenes, re-record on an idle",
-    "machine, add the timing fields plus a 'results' array for /api/results, and add those",
-    "shots to the LB_CAPTURE_SCENARIO=benchmarked --only list in .github/workflows/video.yml."
+    "machine, add the timing fields plus a 'results' array for /api/results, mock that route in",
+    "capture.config.mjs, and add those shots to SHOTS_BENCHMARKED in video/stage.sh. (The old",
+    "pointer here was .github/workflows/video.yml, which no longer exists -- the video is built",
+    "locally by video/make.sh now.) A throughput-chart shot additionally needs Chart.js animation",
+    "disabled before it will draw any bars; see capture.config.mjs's header."
   ],
   "recordedAt": "2026-08-04",
   "recordedWith": {

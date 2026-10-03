@@ -40,13 +40,19 @@ import { fileURLToPath } from "node:url";
  *
  * ONE RUN CANNOT FILM BOTH. `src/capture.mjs` calls `onContext` once per viewport
  * context, *before* the per-shot loop, so route mocks are global to the whole run.
- * The workflow therefore runs `npm run capture` twice with disjoint `--only` lists.
+ * `video/stage.sh`'s `capture_all` therefore runs `npm run capture` twice with
+ * disjoint `--only` lists, held in SHOTS_FIRST_RUN / SHOTS_BENCHMARKED there.
  *
  *   ⚠ Every shot id in storyboard.json must appear in exactly ONE of those two
  *     lists. A shot in neither list is never captured, and video-kit silently
  *     substitutes a branded "capture pending" slate for a missing PNG — the build
  *     still goes green. That silent substitution is the exact failure this split
  *     exists to prevent, so when you add a shot, add it to a list in the same PR.
+ *     `stage.sh`'s `_verify_shot_coverage` enforces this on every `make.sh` run.
+ *
+ *   The split is per SHOT, not per scene: the "models-installed" scene holds one
+ *   shot from each scenario and cross-dissolves them, so the viewer sees the same
+ *   model picker go from every-card-disabled to selectable when the daemon starts.
  *
  * ── The fixture ──────────────────────────────────────────────────────────────
  * `fixtures/run-fixture.json` holds the recorded stage state for `benchmarked`:
@@ -56,16 +62,18 @@ import { fileURLToPath } from "node:url";
  *
  * We mock routes rather than seeding the database because `benchmark_data.db` and
  * `benchmark_results.csv` are gitignored (root .gitignore:145-146), so a seeded DB
- * is not committable and could never reproduce on a runner. Mocking also keeps the
- * workflow's `curl /api/results == []` determinism gate orthogonal and still valid.
+ * is not committable and could never reproduce on another machine. Mocking also
+ * keeps `stage.sh`'s `curl /api/results == []` gate orthogonal and still valid.
  *
- * We do NOT run Ollama in CI. ubuntu-latest has ~2 vCPU and no GPU, live tokens/sec
- * would differ on every run, and the "Detect UI drift" step opens a PR on any byte
- * diff — a genuine run would guarantee a weekly PR of pure noise that never
- * converges on committable shots.
+ * We do NOT run Ollama during a capture. Live tokens/sec differ on every run and on
+ * every machine, so a genuine run would make the shots — and therefore the video —
+ * unreproducible, and would put an unrepeatable throughput number on screen.
  *
  * ── Determinism hazards found while writing this ─────────────────────────────
- * Shots are committed, so a rerun on unchanged UI must produce identical bytes.
+ * Shots are no longer committed (video/.gitignore), so nothing diffs them for you.
+ * They still must be reproducible: two captures of unchanged UI should be the same
+ * picture, or the video quietly changes meaning between renders — and with no image
+ * diff in a PR to catch it, this header is the only thing standing in the way.
  * Everything below is either pinned here or is a known, documented residual.
  *
  * PINNED HERE
@@ -94,8 +102,9 @@ import { fileURLToPath } from "node:url";
  *     system-font fallback. Capture with network access or every glyph metric
  *     changes. The `requestfailed` warning below exists for exactly this.
  *   • Font rasterisation differs between macOS and Linux even with the same
- *     woff2. The committed shots should be the ones the ubuntu-latest workflow
- *     produces; a laptop capture will diff on antialiasing alone.
+ *     woff2, so the same storyboard renders subtly different type on different
+ *     machines. Harmless now that each renderer captures its own shots, but do
+ *     not expect two people's cuts to be byte-identical.
  *
  * ── ⚠ THE FROZEN CLOCK, if you add a shot ────────────────────────────────────
  * `src/capture.mjs:178-180` calls `context.clock.install()`, which replaces
@@ -176,13 +185,25 @@ export default {
     // ── /api/models ──────────────────────────────────────────────────────────
     // We never invent models: the body is always the server's OWN curated
     // catalog, fetched live, so it cannot go stale against SUPPORTED_OLLAMA_MODELS.
-    // Only the `installed` flags and the status code are pinned.
+    // Only the membership, the `installed` flags and the status code are pinned.
     //
     //   first-run   → 503 + installed:false everywhere. The client reads 503 as
     //                 "catalog fallback" (`loadAvailableModels`, `isCatalogFallback`),
     //                 which is exactly what a machine with no `ollama serve` shows.
     //   benchmarked → 200 + installed:true for the fixture's models, which really
     //                 were pulled on the machine the fixture was recorded on.
+    //
+    // ⚠ THE `supported` FILTER IS LOAD-BEARING — do not drop it.
+    // `getOllamaModelCatalog` (src/benchmark.ts) returns the curated catalog MERGED
+    // with whatever the local daemon has pulled, so on a machine running `ollama
+    // serve` this live fetch also returns that developer's own models, tagged
+    // `supported: false`. Without the filter those extra cards are photographed
+    // into the shots, which is wrong three times over: the model grid stops being
+    // reproducible (42 cards on a clean machine, N on a laptop), `first-run` labels
+    // models "Not installed" that demonstrably ARE installed, and — this repo being
+    // public — a developer's private local model names ship inside the product
+    // video. Keeping only `supported` entries reproduces exactly what a machine
+    // with no daemon returns, which is the state both scenarios are pinned to.
     const installed = new Set(fixture.installedModels);
     await context.route("**/api/models", async (route) => {
       const response = await route.fetch();
@@ -196,6 +217,7 @@ export default {
         await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(catalog) });
         return;
       }
+      catalog = catalog.filter((model) => model.supported);
       if (scenario === "first-run") {
         await route.fulfill({
           status: 503,

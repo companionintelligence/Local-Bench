@@ -21,8 +21,15 @@ STAGE_PID=""
 # block; the workflow is gone, so they live here — and _verify_shot_coverage
 # below keeps them honest rather than trusting them, which is what the
 # workflow's own "Verify shot coverage" step did.
-SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog,prompt-picker,prompt-library,run-controls,intelligence-index,docs}"
-SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,benchmark-complete,system-specs,response-compare}"
+#
+# NOTE: the split is per SHOT, not per scene, and one scene deliberately spans
+# both lists. The "models-installed" scene cross-dissolves `models-locked` (this
+# machine has no daemon, every card disabled) into `models-installed` (daemon up,
+# the pulled models selectable) — the same region of the same page in the two
+# different app states. That is the point of the scene, so `models-locked` must
+# stay in FIRST_RUN even though its scene is named for its sibling.
+SHOTS_FIRST_RUN="${SHOTS_FIRST_RUN:-dashboard-hero,model-catalog,models-locked,prompt-picker,prompt-picked-code,prompt-library-collapsed,prompt-library,run-controls,intelligence-index,docs,docs-multi-agent}"
+SHOTS_BENCHMARKED="${SHOTS_BENCHMARKED:-models-installed,benchmark-armed,benchmark-complete,system-specs,response-compare}"
 
 # Every shot in the storyboard must appear in exactly one list. Without this a
 # shot added to storyboard.json is simply never captured, and `ci-video check`

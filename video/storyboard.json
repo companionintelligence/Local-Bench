@@ -33,9 +33,9 @@
       "id": "first-run",
       "kind": "screen",
       "chapter": "setup",
-      "seconds": 6.5,
+      "seconds": 7,
       "caption": "One page. No account, no telemetry, no cloud.",
-      "narration": "One page. It counts the curated catalog, what you have installed, and your fastest run.",
+      "narration": "One page. The whole curated catalog, what you have installed, and everything you measure.",
       "shots": [
         {
           "id": "dashboard-hero",
@@ -87,6 +87,23 @@
       "narration": "Start Ollama and the catalog comes alive. Anything you have already pulled becomes selectable.",
       "shots": [
         {
+          "id": "models-locked",
+          "url": "localhost:3000",
+          "alt": "The same model picker with no Ollama daemon running: every catalog card dimmed, every checkbox disabled, each tagged 'Not installed'.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelList .model-opt.disabled input[disabled]",
+            "before": [
+              {
+                "eval": "(document.getElementById('modelList').scrollIntoView({ block: 'start' }), window.scrollBy(0, -88))"
+              }
+            ],
+            "settle": 450
+          }
+        },
+        {
           "id": "models-installed",
           "url": "localhost:3000",
           "alt": "The model picker with Ollama connected: the installed catalog models sort to the top with enabled checkboxes, above the disabled cards for models not pulled locally.",
@@ -132,6 +149,32 @@
             ],
             "settle": 450
           }
+        },
+        {
+          "id": "prompt-picked-code",
+          "url": "localhost:3000",
+          "alt": "The same picker after choosing the Python Function card: the description now reads Coding, and the editable box holds the factorial prompt instead.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#activePrompt",
+            "before": [
+              {
+                "waitFor": "#promptLibrary .prompt-card[data-id=\"code-python\"]"
+              },
+              {
+                "click": "#promptLibrary .prompt-card[data-id=\"code-python\"]"
+              },
+              {
+                "waitFor": "#promptLibrary .prompt-card[data-id=\"code-python\"].selected"
+              },
+              {
+                "eval": "document.getElementById('activePrompt').scrollIntoView({ block: 'center' })"
+              }
+            ],
+            "settle": 450
+          }
         }
       ]
     },
@@ -139,10 +182,27 @@
       "id": "browse-prompts",
       "kind": "screen",
       "chapter": "benchmark",
-      "seconds": 6,
+      "seconds": 7,
       "caption": "Fourteen prompts, grouped by the work they test.",
       "narration": "Fourteen prompts, from coding to operations. Expand one to read it first.",
       "shots": [
+        {
+          "id": "prompt-library-collapsed",
+          "url": "localhost:3000",
+          "alt": "The prompt library grid as it first renders: fourteen collapsed cards, each showing its category tag, name and one-line description.",
+          "motion": "drift-down",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#promptLibrary .prompt-card",
+            "before": [
+              {
+                "eval": "(document.getElementById('promptLibrary').scrollIntoView({ block: 'start' }), window.scrollBy(0, -88))"
+              }
+            ],
+            "settle": 450
+          }
+        },
         {
           "id": "prompt-library",
           "url": "localhost:3000",
@@ -203,6 +263,29 @@
       "caption": "The run finishes on your machine. Nothing metered.",
       "narration": "The run finishes on your own machine. Nothing was uploaded, and nothing was metered.",
       "shots": [
+        {
+          "id": "benchmark-armed",
+          "url": "localhost:3000",
+          "alt": "The run card immediately before the run: the installed models are ticked and the space above them is empty, with no result notice yet.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/",
+            "waitUntil": "networkidle",
+            "waitFor": "#modelList .model-opt:not(.disabled) input:not([disabled])",
+            "before": [
+              {
+                "click": "button:has-text('Select all installed')"
+              },
+              {
+                "waitFor": "#modelList .model-checkbox-input:checked"
+              },
+              {
+                "eval": "(document.getElementById('benchmarkAlert').scrollIntoView({ block: 'start' }), window.scrollBy(0, -88))"
+              }
+            ],
+            "settle": 450
+          }
+        },
         {
           "id": "benchmark-complete",
           "url": "localhost:3000",
@@ -300,12 +383,12 @@
       "chapter": "compare",
       "seconds": 7,
       "caption": "Ranked by intelligence index, before you download.",
-      "narration": "Every catalog model, ranked by the Artificial Analysis intelligence index.",
+      "narration": "Thirty-one rated models, ranked by the Artificial Analysis intelligence index.",
       "shots": [
         {
           "id": "intelligence-index",
           "url": "localhost:3000",
-          "alt": "The Model intelligence table: catalog models ranked by intelligence index, each with a bar, its size, context window and input types.",
+          "alt": "The Model intelligence table: the rated catalog models ranked by intelligence index, each with a bar, its size, context window and input types, above a footnote counting the models the index does not rate individually.",
           "motion": "drift-down",
           "capture": {
             "path": "/",
@@ -325,7 +408,7 @@
       "id": "read-the-docs",
       "kind": "screen",
       "chapter": "compare",
-      "seconds": 6,
+      "seconds": 7,
       "caption": "The docs ship inside the app.",
       "narration": "The docs ship inside the app: what the numbers mean, how to budget agents.",
       "shots": [
@@ -338,6 +421,26 @@
             "path": "/#docs",
             "waitUntil": "networkidle",
             "waitFor": "#topic-overview h1",
+            "settle": 450
+          }
+        },
+        {
+          "id": "docs-multi-agent",
+          "url": "localhost:3000/#docs",
+          "alt": "The same docs view after switching topic: 'Building multi-agent systems' is the active tab, and its guidance on matching models to roles fills the pane.",
+          "motion": "push-in",
+          "capture": {
+            "path": "/#docs",
+            "waitUntil": "networkidle",
+            "waitFor": "#topic-overview h1",
+            "before": [
+              {
+                "click": ".docs-tab[data-topic=\"multi-agent\"]"
+              },
+              {
+                "waitFor": "#topic-multi-agent:not([hidden]) h1"
+              }
+            ],
             "settle": 450
           }
         }
