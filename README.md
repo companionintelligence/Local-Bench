@@ -1,6 +1,9 @@
-# Local-Bench
+<h1 align="center">Local-Bench</h1>
 
-A [Companion Intelligence](https://ci.computer/) app for benchmarking local LLMs and comparing them by intelligence.
+<p align="center"><strong>A Companion Intelligence app for benchmarking local LLMs and comparing them by intelligence.</strong></p>
+
+<p align="center"><a href="#quick-start">Get started</a> · <a href="https://discord.com/invite/yQp9hwpzAa">Community</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
+
 
 Local-Bench measures how the language models on your own machine perform. It runs a prompt against one or more models served by [Ollama](https://ollama.ai/), records how fast each model generates text, and shows the results in a local web dashboard with tables, charts, and side by side response comparison. You can also run it from the command line and export a PDF report.
 
@@ -251,6 +254,18 @@ now builds and runs on `denoland/deno` instead of `node`; see the
 
 - Documentation: https://docs.ci.computer/
 - Discord community: https://discord.com/invite/yQp9hwpzAa
+
+<!-- companion-hub-readme-deep-review -->
+
+## How to read benchmark results
+
+| Mode | Request pattern | Interpretation |
+|---|---|---|
+| Default CLI | One request at a time, non-streaming | Comparable with the project's historical numbers; does not report time to first token |
+| Concurrent batch | Four requests at once | Aggregate result for concurrent load, not single-request latency |
+| Dashboard | Curated catalog or selected installed models | Uses the configured Ollama endpoint or CI-Hub pool |
+
+Record the model, runner/endpoint, and concurrency mode with any result you share. A pool, local Ollama, and different hardware are not directly comparable unless the request mode and model are held constant.
 
 ## Contributing
 
