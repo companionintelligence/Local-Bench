@@ -2,8 +2,16 @@
 
 <p align="center"><strong>A Companion Intelligence app for benchmarking local LLMs and comparing them by intelligence.</strong></p>
 
-<p align="center"><a href="#quick-start">Get started</a> · <a href="https://discord.com/invite/yQp9hwpzAa">Community</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
+[![release](https://img.shields.io/badge/release-not%20published-757575?style=flat-square)](https://github.com/companionintelligence/Local-Bench/releases)
+[![platform](https://img.shields.io/badge/platform-Node.js%20%C2%B7%20Ollama%20%C2%B7%20Companion%20Hub-0a6358?style=flat-square)](https://github.com/companionintelligence/Local-Bench)
+[![License](https://img.shields.io/badge/license-Commercial%20Standard-8a5a00?style=flat-square)](LICENSE.md)
+[![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/invite/yQp9hwpzAa)
 
+<p align="center"><a href="#quick-start">Get started</a> · <a href="https://discord.com/invite/yQp9hwpzAa">Community</a> · <a href="README.md#quick-start">Documentation</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
+
+<p align="center">
+  <a href="#quick-start"><img src="https://img.shields.io/badge/Run%20locally-Run%20locally-0a6358?style=for-the-badge&logo=github&logoColor=white" alt="Run locally" height="30"></a>
+</p>
 
 Local-Bench measures how the language models on your own machine perform. It runs a prompt against one or more models served by [Ollama](https://ollama.ai/), records how fast each model generates text, and shows the results in a local web dashboard with tables, charts, and side by side response comparison. You can also run it from the command line and export a PDF report.
 
@@ -27,6 +35,13 @@ Full page view: [`docs/screenshots/01-overview.png`](docs/screenshots/01-overvie
 
 ## What it does
 
+| Feature | What it provides |
+|---|---|
+| **Model comparisons** | Submit a common prompt set to Ollama models or a Companion Hub inference pool. |
+| **Measured runs** | Capture latency, first-token timing, throughput and output context. |
+| **Reports** | Compare result sets in the dashboard or use the command-line runner. |
+
+
 - Benchmarks any model installed in Ollama and reports tokens per second, total tokens, and duration.
 - Benchmarks a [CI-Hub](https://github.com/companionintelligence/CI-Hub) inference pool the way an installed app sees it: fires N requests at once, records which node and engine answered each one, and reports time to first token, decode speed, and aggregate throughput.
 - Shows a curated catalog of popular models with sizes, context windows, and an intelligence score, so you can compare capability alongside speed.
@@ -49,6 +64,21 @@ Full page view: [`docs/screenshots/01-overview.png`](docs/screenshots/01-overvie
 - [Node.js](https://nodejs.org/) version 22.5 or higher (needed for the built-in `node:sqlite` module), or [Deno](https://deno.com/) 2.9+ — see [Running under Deno](#running-under-deno).
 - [Ollama](https://ollama.ai/) running locally with at least one model pulled, or a reachable [CI-Hub](https://github.com/companionintelligence/CI-Hub) inference pool (see [Benchmarking a CI-Hub pool](#benchmarking-a-ci-hub-pool)).
 - Optional: an AMD Ryzen AI Max "Strix Halo" machine for the llama.cpp GPU path. See [STRIX_HALO.md](STRIX_HALO.md).
+
+
+## How it fits together
+
+Benchmark inputs are sent to the chosen local or pooled inference endpoint; recorded model, hardware and endpoint context accompanies every comparison.
+
+```mermaid
+flowchart LR
+  Prompts[Prompt suite] --> Runner[Local-Bench runner]
+  Runner --> Local[Ollama endpoint]
+  Runner --> Pool[Companion Hub pool]
+  Local --> Results[Metrics and outputs]
+  Pool --> Results
+  Results --> UI[Comparison dashboard]
+```
 
 ## Quick start
 
