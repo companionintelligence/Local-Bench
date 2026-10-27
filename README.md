@@ -255,6 +255,18 @@ now builds and runs on `denoland/deno` instead of `node`; see the
 - Documentation: https://docs.ci.computer/
 - Discord community: https://discord.com/invite/yQp9hwpzAa
 
+<!-- companion-hub-readme-deep-review -->
+
+## How to read benchmark results
+
+| Mode | Request pattern | Interpretation |
+|---|---|---|
+| Default CLI | One request at a time, non-streaming | Comparable with the project's historical numbers; does not report time to first token |
+| Concurrent batch | Four requests at once | Aggregate result for concurrent load, not single-request latency |
+| Dashboard | Curated catalog or selected installed models | Uses the configured Ollama endpoint or CI-Hub pool |
+
+Record the model, runner/endpoint, and concurrency mode with any result you share. A pool, local Ollama, and different hardware are not directly comparable unless the request mode and model are held constant.
+
 ## Contributing
 
 Contributions are welcome. Please open a Pull Request.
