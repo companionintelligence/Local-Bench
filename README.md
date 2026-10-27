@@ -1,6 +1,9 @@
-# Local-Bench
+<h1 align="center">Local-Bench</h1>
 
-A [Companion Intelligence](https://ci.computer/) app for benchmarking local LLMs and comparing them by intelligence.
+<p align="center"><strong>A Companion Intelligence app for benchmarking local LLMs and comparing them by intelligence.</strong></p>
+
+<p align="center"><a href="#quick-start">Get started</a> · <a href="https://discord.com/invite/yQp9hwpzAa">Community</a></p>
+
 
 Local-Bench measures how the language models on your own machine perform. It runs a prompt against one or more models served by [Ollama](https://ollama.ai/), records how fast each model generates text, and shows the results in a local web dashboard with tables, charts, and side by side response comparison. You can also run it from the command line and export a PDF report.
 
