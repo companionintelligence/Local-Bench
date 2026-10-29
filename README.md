@@ -4,7 +4,7 @@
 
 [![release](https://img.shields.io/badge/release-not%20published-757575?style=flat-square)](https://github.com/companionintelligence/Local-Bench/releases)
 [![platform](https://img.shields.io/badge/platform-Node.js%20%C2%B7%20Ollama%20%C2%B7%20Companion%20Hub-0a6358?style=flat-square)](https://github.com/companionintelligence/Local-Bench)
-[![License](https://img.shields.io/badge/license-Commercial%20Standard-8a5a00?style=flat-square)](LICENSE.md)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-0a6358?style=flat-square)](LICENSE)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/invite/yQp9hwpzAa)
 
 <p align="center"><a href="#quick-start">Get started</a> · <a href="https://discord.com/invite/yQp9hwpzAa">Community</a> · <a href="README.md#quick-start">Documentation</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
@@ -301,6 +301,8 @@ Record the model, runner/endpoint, and concurrency mode with any result you shar
 
 Contributions are welcome. Please open a Pull Request.
 
-## Confidentiality
+## License
 
-Private and Confidential. Property of Lifescope Inc. Do not distribute.
+Local-Bench is free for noncommercial use under the [PolyForm Noncommercial License 1.0.0](LICENSE). See the [License FAQ](docs/License-FAQ.md).
+
+Required Notice: Copyright LifeScope INC, DBA Companion Intelligence (https://ci.computer)

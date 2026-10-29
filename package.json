@@ -22,7 +22,7 @@
     "performance"
   ],
   "author": "",
-  "license": "SEE LICENSE IN LICENSE.md",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "dependencies": {
     "axios": "^1.13.2",
     "systeminformation": "^5.27.11"
