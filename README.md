@@ -2,7 +2,7 @@
 
 <p align="center"><strong>A Companion Intelligence app for benchmarking local LLMs and comparing them by intelligence.</strong></p>
 
-[![release](https://img.shields.io/badge/release-not%20published-757575?style=flat-square)](https://github.com/companionintelligence/Local-Bench/releases)
+[![release](https://img.shields.io/github/v/release/companionintelligence/Local-Bench?style=flat-square&color=0a6358&label=release&include_prereleases)](https://github.com/companionintelligence/Local-Bench/releases)
 [![platform](https://img.shields.io/badge/platform-Node.js%20%C2%B7%20Ollama%20%C2%B7%20Companion%20Hub-0a6358?style=flat-square)](https://github.com/companionintelligence/Local-Bench)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-0a6358?style=flat-square)](LICENSE)
 [![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/invite/yQp9hwpzAa)
