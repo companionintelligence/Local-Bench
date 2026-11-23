@@ -3,7 +3,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase, getRecentAggregates } from './database';
+import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getRecentAggregates } from './database';
 import {
   BenchmarkResult,
   BenchmarkAggregate,
@@ -120,7 +120,7 @@ export function resetTargetState(): void {
 
 /**
  * Installed models from whichever protocol the target speaks: /api/tags first
- * (Ollama or a pool proxy), then /v1/models (vLLM, Lemonade, Lucebox, or a
+ * (Ollama or a pool proxy), then /v1/models (vLLM, Lemonade, LocalAI, or a
  * pool's OpenAI surface). Throws when neither answers.
  */
 async function fetchInstalledModels(base: string): Promise<InstalledModel[]> {

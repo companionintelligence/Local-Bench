@@ -153,7 +153,7 @@ Inside a Hub-installed app you do not need to set anything once the marketplace 
 | `BENCH_TRANSPORT` | Force `ollama` or `openai`. Otherwise the tool probes `GET {base}/api/tags` once: answers means Ollama-native, anything else means OpenAI-compatible. | auto |
 | `PORT` | Dashboard port. | `3000` |
 
-The OpenAI transport is how you reach an engine directly rather than through the pool: vLLM at `http://host:8000`, Lemonade at `http://host:13305`, Lucebox at `http://host:8216`. Those have no `/api/generate`, so set `CI_LLM_BASE_URL` (or `OLLAMA_API_URL`, either works) to the engine's base and the tool uses `/v1/chat/completions`.
+The OpenAI transport is how you reach an engine directly rather than through the pool: vLLM at `http://host:8000`, Lemonade at `http://host:13305`, and llama.cpp's `llama-server` at its own port. Those have no `/api/generate`, so set `CI_LLM_BASE_URL` (or `OLLAMA_API_URL`, either works) to the engine's base and the tool uses `/v1/chat/completions`.
 
 ### Concurrency
 
@@ -167,7 +167,7 @@ Concurrency is the interesting knob for a pool. A single request measures one no
 - **TTFT** (`ttftMs`) is milliseconds from sending the request to the first content chunk. Only measured when streaming (the default). This is the latency a user feels before text starts appearing; on a pool it includes the routing hop and any model load on the chosen node.
 - **Decode tok/s** (`decodeTokensPerSecond`) is the engine's generation speed with everything before the first token excluded. On Ollama it is `eval_count / eval_duration` from the response's own timings; on an OpenAI-compatible engine it is tokens over the time after TTFT. This is the number to compare engines and hardware on, since it is insensitive to load time and queueing.
 - **Aggregate tok/s** (`aggregateTokensPerSecond`) is the sum of all tokens in a batch divided by the batch's wall time. This is the pool's throughput: what N simultaneous apps would get out of it together. Compare it against the concurrency-1 number to see how much the pool scales.
-- **Served by / backend** come from the `X-Hub-Pool-Served-By` and `X-Hub-Pool-Backend` response headers the pool adds (`local` or a peer's MagicDNS name; `ollama`, `vllm`, `lemonade`, `lucebox`, `dspark`, or `mtplx`). They are empty on a direct Ollama or engine target. `requestId` is `X-Hub-Pool-Request-Id`, useful for finding the request in the Hub's logs.
+- **Served by / backend** come from the `X-Hub-Pool-Served-By` and `X-Hub-Pool-Backend` response headers the pool adds (`local` or a peer's MagicDNS name; `ollama`, `vllm`, `lemonade`, `omlx` or `localai`). They are empty on a direct Ollama or engine target. `requestId` is `X-Hub-Pool-Request-Id`, useful for finding the request in the Hub's logs.
 - **Load / prompt eval / eval** (`loadMs`, `promptEvalMs`, `evalMs`) are Ollama's own timing breakdown, in milliseconds. Only present on the Ollama transport.
 
 The CLI prints one line per request and then an `=` line with the batch aggregate:

@@ -110,7 +110,7 @@ OLLAMA_API_URL=http://192.168.1.100:11434 npm run benchmark
 # Point at a CI-Hub pool, four requests at a time
 OLLAMA_API_URL=http://hub.example.ts.net:5002/api/inference/pool node dist/benchmark.js gemma3:4b --concurrency=4
 
-# Point at a vLLM / Lemonade / Lucebox engine directly (OpenAI-compatible, no /api/generate)
+# Point at a vLLM / Lemonade / llama-server engine directly (OpenAI-compatible, no /api/generate)
 CI_LLM_BASE_URL=http://strix:8000/v1 node dist/benchmark.js Qwen/Qwen3-8B
 
 # Custom dashboard port

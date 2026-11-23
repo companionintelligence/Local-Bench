@@ -5,6 +5,7 @@
   "main": "dist/benchmark.js",
   "type": "commonjs",
   "scripts": {
+    "lint": "tsc -p tsconfig.lint.json",
     "build": "tsc",
     "benchmark": "npm run build && node dist/benchmark.js",
     "server": "npm run build && node dist/server.js",

@@ -29,6 +29,8 @@
     <script src="assets/chart.umd.min.js"></script>
     <script src="assets/jspdf.umd.min.js"></script>
     <style>
+        /* The hidden attribute must win over component display rules (e.g. .btn { display: inline-flex }). */
+        [hidden] { display: none !important; }
         :root {
             /* Companion Intelligence — Hub/Portal design system, light colorway.
                Body content is dark ink on light surfaces; every coloured ("muted")

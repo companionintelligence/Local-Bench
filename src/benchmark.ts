@@ -317,7 +317,7 @@ export interface BenchmarkResult {
   targetUrl?: string;
   /** X-Hub-Pool-Served-By ("local" or a peer MagicDNS name). */
   servedBy?: string;
-  /** X-Hub-Pool-Backend (ollama|vllm|lemonade|lucebox|dspark|mtplx). */
+  /** X-Hub-Pool-Backend: one of the Hub's engines (ollama, vllm, lemonade, omlx, localai). Kept as received. */
   backend?: string;
   /** X-Hub-Pool-Request-Id. */
   requestId?: string;

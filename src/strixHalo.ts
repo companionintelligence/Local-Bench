@@ -1,9 +1,10 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * STRIX Halo GPU information
@@ -38,6 +39,16 @@ export interface StrixHaloBenchmarkOptions {
   flashAttention?: boolean;
   noMmap?: boolean;
   prompt?: string;
+  /** Prompt tokens per test (llama-bench -p). Default 512. */
+  nPrompt?: number;
+  /** Generated tokens per test (llama-bench -n). Default 128. */
+  nGen?: number;
+  /** Context depth in tokens, prefilled before timing (llama-bench -d). Default 0. */
+  depth?: number;
+  /** Repetitions per test (llama-bench -r). Default 5. */
+  repetitions?: number;
+  /** Skip llama-bench's warm-up runs (--no-warmup). */
+  noWarmup?: boolean;
 }
 
 /**
@@ -53,7 +64,17 @@ export interface StrixHaloBenchmarkResult {
   timestamp: string;
   success: boolean;
   error?: string;
+  /** Kept for display only: llama-bench has no context-size flag. Use `depth` for prefilled context. */
   contextSize?: number;
+  /** Context depth the run was measured at. */
+  depth?: number;
+  promptTokensPerSecond?: number;
+  /** Decode (token generation) speed, the number the dashboard compares. Also mirrored in tokensPerSecond. */
+  decodeTokensPerSecond?: number;
+  decodeStddevTokensPerSecond?: number;
+  decodeSamples?: number[];
+  /** Every test llama-bench ran, as parsed from its JSON output. */
+  rows?: LlamaBenchRow[];
 }
 
 /**
@@ -219,91 +240,190 @@ export async function createToolbox(toolbox: StrixHaloToolbox): Promise<boolean>
 }
 
 /**
- * Run llama-bench inside a STRIX Halo toolbox
+ * llama-bench arguments for one run. The run prints JSON on stdout (`-o json`), so nothing
+ * has to be read out of the markdown table. Flag spellings follow llama-bench's own options:
+ * `-fa` takes on|off|auto, `-d` sets the context depth, `-r` the repetitions.
+ */
+export function buildLlamaBenchArgs(options: StrixHaloBenchmarkOptions): string[] {
+  const args = ['-m', options.modelPath, '-ngl', String(options.numGpuLayers ?? 99)];
+  // STRIX Halo runs were stable with memory-mapping off. llama-bench spells that as a load mode.
+  if (options.noMmap !== false) {
+    args.push('-lm', 'none');
+  }
+  if (options.flashAttention) {
+    args.push('-fa', 'on');
+  }
+  args.push(
+    '-p', String(options.nPrompt ?? 512),
+    '-n', String(options.nGen ?? 128),
+    '-d', String(options.depth ?? 0),
+    '-r', String(options.repetitions ?? 5),
+    '-o', 'json'
+  );
+  if (options.noWarmup) {
+    args.push('--no-warmup');
+  }
+  return args;
+}
+
+/** One test from llama-bench's JSON array. `pp` is prompt processing, `tg` token generation. */
+export interface LlamaBenchRow {
+  kind: 'pp' | 'tg' | 'pp+tg';
+  nPrompt: number;
+  nGen: number;
+  depth: number;
+  /** Mean tokens per second over the repetitions (avg_ts). */
+  tokensPerSecond: number;
+  stddevTokensPerSecond?: number;
+  /** Each repetition's tokens per second (samples_ts). */
+  samplesTokensPerSecond: number[];
+  backend?: string;
+  modelFilename?: string;
+  buildCommit?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Parse llama-bench's `-o json` output. Anything printed before the array (build logs,
+ * warnings) is skipped; output with no array at all is an error, not an empty result.
+ */
+export function parseLlamaBenchJson(text: string): LlamaBenchRow[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const start = text.indexOf('[');
+    const end = text.lastIndexOf(']');
+    if (start === -1) {
+      throw new Error('llama-bench printed no JSON results (expected -o json output)');
+    }
+    if (end <= start) {
+      throw new Error('llama-bench printed output that is not valid JSON');
+    }
+    try {
+      parsed = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      throw new Error('llama-bench printed output that is not valid JSON');
+    }
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('llama-bench JSON is not a list of results');
+  }
+
+  const rows: LlamaBenchRow[] = [];
+  for (const item of parsed) {
+    if (!isRecord(item)) {
+      continue;
+    }
+    const tokensPerSecond = finiteNumber(item.avg_ts);
+    const nPrompt = finiteNumber(item.n_prompt) ?? 0;
+    const nGen = finiteNumber(item.n_gen) ?? 0;
+    if (tokensPerSecond === undefined || (nPrompt === 0 && nGen === 0)) {
+      continue;
+    }
+    rows.push({
+      kind: nPrompt > 0 && nGen === 0 ? 'pp' : nPrompt === 0 && nGen > 0 ? 'tg' : 'pp+tg',
+      nPrompt,
+      nGen,
+      depth: finiteNumber(item.n_depth) ?? 0,
+      tokensPerSecond,
+      stddevTokensPerSecond: finiteNumber(item.stddev_ts),
+      samplesTokensPerSecond: Array.isArray(item.samples_ts)
+        ? item.samples_ts.filter((value): value is number => finiteNumber(value) !== undefined)
+        : [],
+      backend: typeof item.backends === 'string' ? item.backends : undefined,
+      modelFilename: typeof item.model_filename === 'string' ? item.model_filename : undefined,
+      buildCommit: typeof item.build_commit === 'string' ? item.build_commit : undefined
+    });
+  }
+  return rows;
+}
+
+export interface LlamaBenchSummary {
+  promptTokensPerSecond?: number;
+  decodeTokensPerSecond?: number;
+  decodeStddevTokensPerSecond?: number;
+  decodeSamples: number[];
+  depth: number;
+  nGen: number;
+}
+
+/** The prompt-processing test and the decode test, which is what the dashboard compares. */
+export function summarizeLlamaBench(rows: LlamaBenchRow[]): LlamaBenchSummary {
+  const decode = rows.find(row => row.nPrompt === 0 && row.nGen > 0) ?? rows.find(row => row.nGen > 0);
+  const prompt = rows.find(row => row.kind === 'pp');
+  return {
+    promptTokensPerSecond: prompt?.tokensPerSecond,
+    decodeTokensPerSecond: decode?.tokensPerSecond,
+    decodeStddevTokensPerSecond: decode?.stddevTokensPerSecond,
+    decodeSamples: decode?.samplesTokensPerSecond ?? [],
+    depth: decode?.depth ?? prompt?.depth ?? 0,
+    nGen: decode?.nGen ?? 0
+  };
+}
+
+/**
+ * Run llama-bench inside a STRIX Halo toolbox and read its JSON results. The command runs
+ * without a shell: the model path and every flag reach llama-bench as separate arguments.
  */
 export async function benchmarkWithToolbox(options: StrixHaloBenchmarkOptions): Promise<StrixHaloBenchmarkResult> {
   const startTime = Date.now();
-  
+  const model = path.basename(options.modelPath, '.gguf');
+  const backend = options.toolboxName.includes('rocm') ? 'rocm' : 'vulkan';
   try {
-    // Build llama-bench command
-    // Note: Paths are based on official AMD STRIX Halo toolbox structure
-    // Vulkan toolboxes install to /usr/sbin, ROCm toolboxes to /usr/local/bin
-    const llamaBenchPath = options.toolboxName.includes('vulkan') 
-      ? '/usr/sbin/llama-bench'
-      : '/usr/local/bin/llama-bench';
+    // Paths follow the AMD STRIX Halo toolbox layout: Vulkan installs under /usr/sbin, ROCm under /usr/local/bin.
+    const binary = options.toolboxName.includes('vulkan') ? '/usr/sbin/llama-bench' : '/usr/local/bin/llama-bench';
+    // ROCBLAS_USE_HIPBLASLT=1 selects the optimised BLAS on ROCm toolboxes; 'hblt0' toolboxes turn it off on purpose.
+    const envPrefix = options.toolboxName.includes('rocm') && !options.toolboxName.includes('hblt0')
+      ? ['env', 'ROCBLAS_USE_HIPBLASLT=1']
+      : [];
+    const argv = ['run', '-c', options.toolboxName, '--', ...envPrefix, binary, ...buildLlamaBenchArgs(options)];
 
-    const args = [
-      `-m ${options.modelPath}`,
-      `-ngl ${options.numGpuLayers || 99}`,
-      '-mmp 0' // mmp: memory map policy, 0 = no memory mapping (required for STRIX Halo stability)
-    ];
-
-    if (options.flashAttention) {
-      args.push('-fa 1');
-    }
-
-    if (options.contextSize) {
-      args.push(`-c ${options.contextSize}`);
-    }
-
-    // STRIX Halo ROCm backend optimization
-    // ROCBLAS_USE_HIPBLASLT=1 enables optimized BLAS library (default)
-    // Some toolboxes with 'hblt0' suffix specifically disable this for testing
-    const envVars = options.toolboxName.includes('rocm') && !options.toolboxName.includes('hblt0')
-      ? 'env ROCBLAS_USE_HIPBLASLT=1'
-      : '';
-
-    const cmd = `toolbox run -c ${options.toolboxName} -- ${envVars} ${llamaBenchPath} ${args.join(' ')}`;
-    
     console.log(`Running benchmark in ${options.toolboxName}...`);
-    const { stdout, stderr } = await execAsync(cmd, { 
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 300000 // 5 minutes
-    });
+    const { stdout } = await execFileAsync('toolbox', argv, { maxBuffer: 10 * 1024 * 1024, timeout: 300000 });
+    const durationSeconds = (Date.now() - startTime) / 1000;
 
-    const endTime = Date.now();
-    const durationSeconds = (endTime - startTime) / 1000;
-
-    // Parse llama-bench output
-    const output = stdout + stderr;
-    
-    // Extract tokens per second from output
-    // llama-bench typically outputs in format like "pp 512: 123.45 t/s"
-    const tpsMatch = output.match(/(\d+\.?\d*)\s+t\/s/i);
-    const tokensPerSecond = tpsMatch ? parseFloat(tpsMatch[1]) : 0;
-
-    // Extract total tokens if available
-    const tokensMatch = output.match(/tokens:\s*(\d+)/i);
-    const totalTokens = tokensMatch ? parseInt(tokensMatch[1], 10) : 0;
-
-    const modelName = path.basename(options.modelPath, '.gguf');
-    const backend = options.toolboxName.includes('rocm') ? 'rocm' : 'vulkan';
-
+    const rows = parseLlamaBenchJson(stdout);
+    const summary = summarizeLlamaBench(rows);
+    const decode = summary.decodeTokensPerSecond;
     return {
-      model: modelName,
+      model,
       toolbox: options.toolboxName,
       backend,
-      tokensPerSecond,
-      totalTokens,
+      tokensPerSecond: decode ?? 0,
+      totalTokens: summary.nGen,
       durationSeconds,
       timestamp: new Date().toISOString(),
-      success: tokensPerSecond > 0,
-      contextSize: options.contextSize
+      success: decode !== undefined && decode > 0,
+      error: decode === undefined ? 'llama-bench reported no decode rate' : undefined,
+      contextSize: options.contextSize,
+      depth: summary.depth,
+      promptTokensPerSecond: summary.promptTokensPerSecond,
+      decodeTokensPerSecond: decode,
+      decodeStddevTokensPerSecond: summary.decodeStddevTokensPerSecond,
+      decodeSamples: summary.decodeSamples,
+      rows
     };
   } catch (error) {
-    const endTime = Date.now();
-    const durationSeconds = (endTime - startTime) / 1000;
-    
+    const durationSeconds = (Date.now() - startTime) / 1000;
     return {
-      model: path.basename(options.modelPath, '.gguf'),
+      model,
       toolbox: options.toolboxName,
-      backend: options.toolboxName.includes('rocm') ? 'rocm' : 'vulkan',
+      backend,
       tokensPerSecond: 0,
       totalTokens: 0,
       durationSeconds,
       timestamp: new Date().toISOString(),
       success: false,
-      error: (error as Error).message
+      error: (error as Error).message,
+      rows: []
     };
   }
 }
