@@ -9,6 +9,8 @@ import { startStubEngine, StubEngine, StubOptions } from './testing/stubEngine';
 
 // A real streamed generation captured from a local Ollama (gemma3:1b).
 const OLLAMA_CAPTURE = path.join(__dirname, '__fixtures__', 'ollama-generate-stream.ndjson');
+// A streamed completion captured from a local llama-server (gemma3:1b GGUF), with its timings.
+const LLAMACPP_CAPTURE = path.join(__dirname, '__fixtures__', 'llamacpp-chat-stream.sse');
 
 const ENV_KEYS = ['OLLAMA_API_URL', 'CI_LLM_BASE_URL', 'CI_LLM_API_KEY', 'BENCH_TRANSPORT', 'BENCH_DRIVER'] as const;
 const POOL_HEADERS = {
@@ -235,6 +237,24 @@ describe('Engine contract over HTTP', () => {
       const result = await benchmarkModel('local.gguf', 'Say hi now', { stream: false });
 
       expect(result).toMatchObject({ success: true, timingSource: 'llamacpp', decodeTokensPerSecond: 52.5 });
+    });
+
+    it('replays a captured llama-server stream: its timings, usage and context window', async () => {
+      const server = await stub({ engine: 'llamacpp', chatFixture: LLAMACPP_CAPTURE });
+      process.env.CI_LLM_BASE_URL = server.url;
+
+      const result = await benchmarkModel('gemma3-1b.gguf', 'Say hello in five words.', { stream: true });
+
+      expect(result).toMatchObject({
+        success: true,
+        driver: 'llamacpp',
+        timingSource: 'llamacpp',
+        totalTokens: 6,
+        promptTokens: 16,
+        contextWindow: 4096
+      });
+      expect(result.decodeTokensPerSecond).toBeCloseTo(141.37, 1);
+      expect(result.promptTokensPerSecond).toBeCloseTo(17.21, 1);
     });
 
     it('is not mistaken for llama-server when /props is absent', async () => {

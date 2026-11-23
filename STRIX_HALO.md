@@ -188,7 +188,7 @@ npm run strix-halo benchmark models/model.gguf --toolbox llama-vulkan-radv
 STRIX Halo requires specific settings for optimal performance and stability:
 
 1. **Flash Attention**: Must be enabled (`-fa on`)
-2. **No Memory Mapping**: Must be disabled (`--no-mmap`). The tool passes it to llama-bench as `-lm none`; that equivalence to the old `-mmp 0` is not yet confirmed on this llama-bench version, so check it on the machine.
+2. **No Memory Mapping**: Must be disabled (`--no-mmap`). The tool passes it to llama-bench as `-lm none`. On llama-bench 1.0.0 the flag is accepted and reported in the output as `load_mode: none`; on the STRIX Halo toolboxes, confirm it on the machine.
 3. **GPU Layers**: Offload maximum layers to GPU (`-ngl 99` or `-ngl 999`)
 
 These settings are enabled by default in the STRIX Halo benchmark commands.

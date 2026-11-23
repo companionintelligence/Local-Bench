@@ -122,3 +122,33 @@ describe('benchmarkWithToolbox', () => {
     expect(result).toMatchObject({ success: false, error: 'llama-bench reported no decode rate' });
   });
 });
+
+// Real output from llama-bench 1.0.0 on this host (gemma3:1b GGUF, Metal), run with the tool's own arguments.
+const REAL_DEFAULT = fs.readFileSync(path.join(__dirname, '__fixtures__', 'llama-bench-capture.json'), 'utf8');
+const REAL_DEPTH = fs.readFileSync(path.join(__dirname, '__fixtures__', 'llama-bench-depth-capture.json'), 'utf8');
+
+describe('real llama-bench output (captured)', () => {
+  it('parses the prompt and decode tests and matches the engine-reported rates', () => {
+    const rows = parseLlamaBenchJson(REAL_DEFAULT);
+    expect(rows.map(row => row.kind)).toEqual(['pp', 'tg']);
+    const summary = summarizeLlamaBench(rows);
+    expect(summary.decodeTokensPerSecond).toBeCloseTo(191.74, 2);
+    expect(summary.promptTokensPerSecond).toBeCloseTo(5192.99, 2);
+    expect(summary.decodeSamples).toHaveLength(3);
+    expect(summary.decodeStddevTokensPerSecond).toBeCloseTo(11.2, 1);
+  });
+
+  it('reads the context depth the run was measured at', () => {
+    const summary = summarizeLlamaBench(parseLlamaBenchJson(REAL_DEPTH));
+    expect(summary.depth).toBe(2048);
+    expect(summary.decodeTokensPerSecond).toBeCloseTo(153.7, 1);
+    expect(summary.promptTokensPerSecond).toBeCloseTo(4853.58, 1);
+  });
+
+  it('shows the tool arguments took effect: -lm none is reported as load_mode none, and -fa on as flash_attn 1', () => {
+    const rows = JSON.parse(REAL_DEFAULT) as Array<Record<string, unknown>>;
+    expect(rows.every(row => row.load_mode === 'none')).toBe(true);
+    expect(rows.every(row => row.flash_attn === 1)).toBe(true);
+  });
+});
+

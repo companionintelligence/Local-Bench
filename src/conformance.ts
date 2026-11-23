@@ -89,7 +89,7 @@ export const CONFORMANCE: Record<DriverType, { cells: Record<Dimension, Cell>; l
   },
   llamacpp: {
     cells: { ...viaSharedWire(openaiWire()), ...llamaCppExtras } as Record<Dimension, Cell>,
-    live: { status: 'not-run', note: 'llama-server is not installed on this host' }
+    live: { status: 'verified', note: 'run live on this host: llama-server 1.0.0 on port 8080 with the gemma3:1b GGUF. Detection, smoke, a depth run, and a streamed completion captured as the fixture' }
   },
   vllm: {
     cells: viaSharedWire(openaiWire()),
@@ -120,6 +120,6 @@ export const CONFORMANCE: Record<DriverType, { cells: Record<Dimension, Cell>; l
       'stream-fallback': { status: 'skipped', reason: 'llama-bench has no streamed or plain mode' },
       'model-listing': { status: 'skipped', reason: 'takes a GGUF path, not a server' }
     },
-    live: { status: 'not-run', note: 'llama-bench is not installed here; its output parser is tested against the documented JSON schema' }
+    live: { status: 'verified', note: 'run live on this host with llama-bench 1.0.0: the tool\'s arguments were accepted and their effect is reported in the output. The toolbox invocation itself was not run' }
   }
 };

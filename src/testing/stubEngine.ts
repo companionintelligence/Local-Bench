@@ -23,6 +23,8 @@ export interface StubOptions {
   timings?: boolean;
   /** Replay this captured Ollama NDJSON stream instead of generating one. */
   ollamaFixture?: string;
+  /** Replay this captured OpenAI-style SSE stream instead of generating one. */
+  chatFixture?: string;
   /** Ollama: the load_duration to report, in nanoseconds (a cold start). */
   loadDurationNs?: number;
   /** The text the engine answers with. */
@@ -109,6 +111,11 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
         usage: options.omitUsage ? undefined : { completion_tokens: words.length, prompt_tokens: promptTokens },
         ...(timings ? { timings } : {})
       });
+      return;
+    }
+    if (options.chatFixture) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', ...options.headers });
+      res.end(fs.readFileSync(options.chatFixture, 'utf8'));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'text/event-stream', ...options.headers });
