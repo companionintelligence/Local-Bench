@@ -1026,7 +1026,7 @@ describe('Server Module', () => {
           expect.any(String),
           1,
           1,
-          { stream: true, contextDepth: 0 }
+          { stream: true, contextDepth: 0, measurePower: true }
         );
         expect(mockedBenchmark.saveResultsToCSV).toHaveBeenCalledWith(rows);
         // Rows and their aggregate go to the database in one call so they share a specs row.
@@ -1046,8 +1046,8 @@ describe('Server Module', () => {
 
       runBenchmark({ models: ['llama2', 'qwen3:8b'], customPrompt: '  hello  ', concurrency: 4, stream: false }, done, (status, _headers, body) => {
         expect(status).toBe(200);
-        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenNthCalledWith(1, 'llama2', 'hello', 1, 4, { stream: false, contextDepth: 0 });
-        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', 1, 4, { stream: false, contextDepth: 0 });
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenNthCalledWith(1, 'llama2', 'hello', 1, 4, { stream: false, contextDepth: 0, measurePower: true });
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', 1, 4, { stream: false, contextDepth: 0, measurePower: true });
         expect(body.results).toHaveLength(8);
         expect(body.aggregates.map((a: BenchmarkAggregate) => a.model)).toEqual(['llama2', 'qwen3:8b']);
         // Everything went to the database in one call, so rows and aggregates share specs.
@@ -1094,7 +1094,7 @@ describe('Server Module', () => {
       mockedBenchmark.benchmarkRepeated.mockResolvedValue({ results: [], aggregates: [makeAggregate({ concurrency: 16 })], summary: {} } as any);
       runBenchmark({ models: ['llama2'], concurrency: 16 }, done, (status) => {
         expect(status).toBe(200);
-        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenCalledWith('llama2', undefined, 1, 16, { stream: true, contextDepth: 0 });
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenCalledWith('llama2', undefined, 1, 16, { stream: true, contextDepth: 0, measurePower: true });
       });
     });
 
@@ -1119,6 +1119,131 @@ describe('Server Module', () => {
         expect(headers).toEqual({ 'Content-Type': 'application/json' });
         expect(body.error).toBe('Failed to run benchmark: pool 502: no candidate');
         expect(mockedBenchmark.saveResultsToDatabase).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('GET /api/scenarios', () => {
+    it('lists the fixed workloads and the limits on ppN+tgM', (done) => {
+      const req = { method: 'GET', url: '/api/scenarios' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data: string) => {
+          const body = JSON.parse(data);
+          expect(body.scenarios.map((scenario: { name: string }) => scenario.name)).toContain('pp1024+tg16');
+          expect(body).toMatchObject({ pattern: 'ppN+tgM', maxPromptTokens: 32768, maxGenTokens: 8192 });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+  });
+
+  describe('GET /api/export', () => {
+    it('returns a JSON export that leaves out prompts, responses, addresses and the host name', (done) => {
+      mockedDatabase.getAllBenchmarkResults.mockReturnValue([{
+        id: 1,
+        model: 'gemma3:1b',
+        tokensPerSecond: 40,
+        totalTokens: 8,
+        durationSeconds: 0.2,
+        timestamp: '2026-11-20T10:00:00.000Z',
+        success: true,
+        prompt: 'SECRET PROMPT TEXT',
+        response: 'SECRET RESPONSE TEXT',
+        targetUrl: 'http://100.115.174.32:11434',
+        servedBy: 'beta-max',
+        requestId: 'req-secret',
+        scenario: 'pp16+tg8',
+        finishReason: 'length',
+        engine: { engineVersion: '0.33.3' }
+      }] as any);
+      mockedDatabase.getRecentAggregates.mockReturnValue([]);
+      mockedDatabase.getLatestSystemSpecs.mockReturnValue({
+        serverName: 'my-laptop',
+        cpuModel: 'Apple M4',
+        cpuCores: 10,
+        cpuThreads: 10,
+        totalMemoryGB: 24,
+        osType: 'darwin',
+        osVersion: '27.2',
+        gpus: [],
+        timestamp: '2026-11-20T09:00:00.000Z'
+      } as any);
+
+      const req = { method: 'GET', url: '/api/export?limit=5' } as http.IncomingMessage;
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data: string) => {
+          const [status, headers] = (res.writeHead as jest.Mock).mock.calls[0];
+          expect(status).toBe(200);
+          expect(headers['Content-Disposition']).toContain('local-bench-export.json');
+          expect(data).not.toContain('SECRET');
+          expect(data).not.toContain('100.115.174.32');
+          expect(data).not.toContain('req-secret');
+          expect(data).not.toContain('my-laptop');
+          const body = JSON.parse(data);
+          expect(body.schema).toBe('local-bench-export/1');
+          expect(body.runs[0]).toMatchObject({ model: 'gemma3:1b', scenario: 'pp16+tg8', finishReason: 'length', engine: { engineVersion: '0.33.3' } });
+          expect(body.hardware).toMatchObject({ cpuModel: 'Apple M4', totalMemoryGB: 24 });
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', req, res);
+    });
+  });
+
+  describe('POST /api/run-benchmark with a workload or a note', () => {
+    function runBenchmark(body: unknown, done: () => void, assert: (status: number, body: any) => void): void {
+      const res = {
+        writeHead: jest.fn(),
+        end: jest.fn((data: string) => {
+          const [status] = (res.writeHead as jest.Mock).mock.calls[0];
+          assert(status, JSON.parse(data));
+          done();
+        })
+      } as unknown as http.ServerResponse;
+      server.emit('request', postRequest('/api/run-benchmark', body), res);
+    }
+
+    it('rejects an unknown scenario with 400', (done) => {
+      runBenchmark({ models: ['llama2'], scenario: 'pp7+tg0' }, done, (status, body) => {
+        expect(status).toBe(400);
+        expect(body.error).toMatch(/Unknown scenario/);
+      });
+    });
+
+    it('rejects a scenario that also sends a prompt', (done) => {
+      runBenchmark({ models: ['llama2'], scenario: 'pp16+tg8', promptId: TEST_PROMPT_ID }, done, (status, body) => {
+        expect(status).toBe(400);
+        expect(body.error).toMatch(/own prompt/);
+      });
+    });
+
+    it('rejects a scenario combined with a context depth', (done) => {
+      runBenchmark({ models: ['llama2'], scenario: 'pp16+tg8', contextDepth: 4096 }, done, (status, body) => {
+        expect(status).toBe(400);
+        expect(body.error).toMatch(/contextDepth must be 0/);
+      });
+    });
+
+    it('rejects a note longer than 280 characters', (done) => {
+      runBenchmark({ models: ['llama2'], note: 'x'.repeat(281) }, done, (status, body) => {
+        expect(status).toBe(400);
+        expect(body.error).toMatch(/280 characters/);
+      });
+    });
+
+    it('passes the scenario and the trimmed note through to the runner, with power sampling on', (done) => {
+      mockedBenchmark.benchmarkRepeated.mockResolvedValue({ results: [makeResult()], aggregates: [makeAggregate()], summary: {} } as any);
+      runBenchmark({ models: ['llama2'], scenario: 'pp16+tg8', note: '  on battery  ' }, done, (status) => {
+        expect(status).toBe(200);
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenCalledWith('llama2', undefined, 1, 1, expect.objectContaining({
+          scenario: expect.objectContaining({ name: 'pp16+tg8', promptTokens: 16, genTokens: 8 }),
+          contextDepth: 0,
+          note: 'on battery',
+          measurePower: true
+        }));
       });
     });
   });

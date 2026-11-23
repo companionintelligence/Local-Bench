@@ -699,6 +699,13 @@
                         <span class="hint-sm">Prefills about this much context before the question, so the speed reflects a long conversation.</span>
                     </div>
                     <div class="run-option">
+                        <label class="field-label" for="scenarioSelect">Workload</label>
+                        <select class="input" id="scenarioSelect" onchange="handleScenarioChange()">
+                            <option value="" selected>Free prompt (the test prompt above)</option>
+                        </select>
+                        <span class="hint-sm">A fixed prompt length and generation cap, so runs on different machines do the same work. It sets its own prompt and depth.</span>
+                    </div>
+                    <div class="run-option">
                         <label class="field-label" for="repeatSelect">Repetitions</label>
                         <select class="input" id="repeatSelect">
                             <option value="1" selected>1 run</option>
@@ -712,6 +719,11 @@
                         <span class="field-label">Streaming</span>
                         <label class="switch" for="streamToggle"><input type="checkbox" id="streamToggle" checked> Stream tokens</label>
                         <span class="hint-sm">Streaming records time to first token. Turn it off to measure a single blocking response.</span>
+                    </div>
+                    <div class="run-option">
+                        <label class="field-label" for="runNote">Note</label>
+                        <input class="input" id="runNote" type="text" maxlength="280" placeholder="Optional, e.g. machine state or what changed">
+                        <span class="hint-sm">Stored with every row of this run and carried into the JSON export.</span>
                     </div>
                 </div>
 
@@ -804,6 +816,7 @@
                 <h2>Detailed results</h2>
                 <div style="display:flex; gap:8px; align-items:center">
                     <button class="btn btn-primary" id="exportPdfBtn" onclick="exportResultsPdf()" hidden>Export PDF</button>
+                    <a class="btn btn-ghost" href="/api/export" download="local-bench-export.json">Download JSON export</a>
                     <button class="btn btn-ghost" onclick="loadResults()">Refresh</button>
                 </div>
             </div>
@@ -826,6 +839,11 @@
                                 <th data-col="backend" hidden>Backend</th>
                                 <th data-col="driver" hidden>Driver</th>
                                 <th data-col="contextDepth" hidden>Depth</th>
+                                <th data-col="contextWindow" hidden>Context window</th>
+                                <th data-col="scenario" hidden>Workload</th>
+                                <th data-col="powerWatts" hidden>Power</th>
+                                <th data-col="vramBytes" hidden>VRAM</th>
+                                <th data-col="note" hidden>Note</th>
                                 <th>Timestamp</th>
                                 <th>Status</th>
                             </tr>
@@ -970,7 +988,7 @@
 
         // Columns that only exist for pool-routed or streamed runs. Each is shown in
         // the results table (and the PDF) only when at least one row carries a value.
-        const POOL_COLUMNS = ['decodeTokensPerSecond', 'ttftMs', 'loadMs', 'servedBy', 'backend', 'driver', 'contextDepth'];
+        const POOL_COLUMNS = ['decodeTokensPerSecond', 'ttftMs', 'loadMs', 'servedBy', 'backend', 'driver', 'contextDepth', 'contextWindow', 'scenario', 'powerWatts', 'vramBytes', 'note'];
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -1026,7 +1044,26 @@
                 evalMs: numOrUndef(pick(result, 'evalMs', 'eval_ms')),
                 decodeTokensPerSecond: numOrUndef(pick(result, 'decodeTokensPerSecond', 'decode_tokens_per_second')),
                 concurrency: numOrUndef(pick(result, 'concurrency')),
-                batchId: pick(result, 'batchId', 'batch_id')
+                batchId: pick(result, 'batchId', 'batch_id'),
+                driver: pick(result, 'driver'),
+                seat: pick(result, 'seat'),
+                timingSource: pick(result, 'timingSource', 'timing_source'),
+                contextDepth: numOrUndef(pick(result, 'contextDepth', 'context_depth')),
+                contextWindow: numOrUndef(pick(result, 'contextWindow', 'context_window')),
+                cold: result.cold === null || result.cold === undefined ? undefined : Boolean(result.cold),
+                repeatIndex: numOrUndef(pick(result, 'repeatIndex', 'repeat_index')),
+                profile: pick(result, 'profile'),
+                promptTokensPerSecond: numOrUndef(pick(result, 'promptTokensPerSecond', 'prompt_tokens_per_second')),
+                // Workload, power and memory: optional on every row.
+                scenario: pick(result, 'scenario'),
+                requestedPromptTokens: numOrUndef(pick(result, 'requestedPromptTokens', 'requested_prompt_tokens')),
+                requestedGenTokens: numOrUndef(pick(result, 'requestedGenTokens', 'requested_gen_tokens')),
+                finishReason: pick(result, 'finishReason', 'finish_reason'),
+                vramBytes: numOrUndef(pick(result, 'vramBytes', 'vram_bytes')),
+                powerWatts: numOrUndef(pick(result, 'powerWatts', 'power_watts')),
+                powerSource: pick(result, 'powerSource', 'power_source'),
+                powerNote: pick(result, 'powerNote', 'power_note'),
+                note: pick(result, 'note')
             };
         }
 
@@ -1049,7 +1086,12 @@
                 backendCounts: parseCounts(pick(a, 'backendCounts', 'backend_counts')),
                 successes: numOrUndef(pick(a, 'successes')) ?? 0,
                 failures: numOrUndef(pick(a, 'failures')) ?? 0,
-                timestamp: pick(a, 'timestamp') ?? ''
+                timestamp: pick(a, 'timestamp') ?? '',
+                vramBytes: numOrUndef(pick(a, 'vramBytes', 'vram_bytes')),
+                powerWatts: numOrUndef(pick(a, 'powerWatts', 'power_watts')),
+                powerSource: pick(a, 'powerSource', 'power_source'),
+                powerNote: pick(a, 'powerNote', 'power_note'),
+                tokensPerJoule: numOrUndef(pick(a, 'tokensPerJoule', 'tokens_per_joule'))
             };
         }
 
@@ -1057,7 +1099,7 @@
         function poolColumnsPresent(results) {
             const present = new Set();
             (results || []).forEach(r => POOL_COLUMNS.forEach(k => {
-                const shown = k === 'contextDepth' ? Number(r?.contextDepth) > 0 : hasValue(r?.[k]);
+                const shown = k === 'contextDepth' ? Number(r?.contextDepth) > 0 : k === 'powerWatts' ? (hasValue(r?.powerWatts) || hasValue(r?.powerNote)) : hasValue(r?.[k]);
                 if (shown) present.add(k);
             }));
             return present;
@@ -1147,6 +1189,34 @@
             } catch (e) {
                 // The detected option stays available on its own.
             }
+        }
+
+        async function loadScenarios() {
+            const select = document.getElementById('scenarioSelect');
+            if (!select) return;
+            try {
+                const res = await fetch('/api/scenarios');
+                if (!res.ok) return;
+                const data = await res.json();
+                for (const scenario of data.scenarios || []) {
+                    const option = document.createElement('option');
+                    option.value = scenario.name;
+                    option.textContent = `${scenario.name}: ${Number(scenario.promptTokens).toLocaleString()} prompt tokens, up to ${Number(scenario.genTokens).toLocaleString()} generated`;
+                    select.appendChild(option);
+                }
+            } catch (e) {
+                // The free prompt option stays available on its own.
+            }
+        }
+
+        // A workload sets its own prompt and length, so the prompt and depth controls step aside.
+        function handleScenarioChange() {
+            const fixed = !!document.getElementById('scenarioSelect')?.value;
+            for (const id of ['promptSelect', 'activePrompt', 'depthSelect']) {
+                const el = document.getElementById(id);
+                if (el) el.disabled = fixed;
+            }
+            if (fixed) document.getElementById('depthSelect').value = '0';
         }
 
         async function loadTarget() {
@@ -1388,6 +1458,24 @@
             return results;
         }
 
+        function scenarioHtml(result) {
+            if (!hasValue(result?.scenario)) return '—';
+            const shape = [
+                hasValue(result?.requestedPromptTokens) ? `${Number(result.requestedPromptTokens).toLocaleString()} prompt tokens` : '',
+                hasValue(result?.requestedGenTokens) ? `up to ${Number(result.requestedGenTokens).toLocaleString()} generated` : ''
+            ].filter(Boolean).join(', ');
+            const finish = hasValue(result?.finishReason)
+                ? ` <span class="tag muted" title="How generation ended: stop = end of sequence, length = the cap was reached">${escapeHtml(result.finishReason)}</span>`
+                : '';
+            return `<span class="tag" title="${escapeHtml(shape)}">${escapeHtml(result.scenario)}</span>${finish}`;
+        }
+
+        function powerHtml(result) {
+            if (hasValue(result?.powerWatts)) return `${Number(result.powerWatts).toFixed(1)} W`;
+            if (hasValue(result?.powerNote)) return `<span class="tag muted" title="${escapeHtml(result.powerNote)}">not recorded</span>`;
+            return '—';
+        }
+
         function displayResults(results) {
             const tbody = document.getElementById('resultsBody');
             tbody.innerHTML = '';
@@ -1423,6 +1511,11 @@
                     ${cell('backend', hasValue(result?.backend) ? escapeHtml(result.backend) : '—')}
                     ${cell('driver', hasValue(result?.driver) ? escapeHtml(result.driver) : '—')}
                     ${cell('contextDepth', Number(result?.contextDepth) > 0 ? `${Number(result.contextDepth).toLocaleString()} tokens` : '—', 'num')}
+                    ${cell('contextWindow', hasValue(result?.contextWindow) ? `${Number(result.contextWindow).toLocaleString()} tokens` : '—', 'num')}
+                    ${cell('scenario', scenarioHtml(result))}
+                    ${cell('powerWatts', powerHtml(result), 'num')}
+                    ${cell('vramBytes', hasValue(result?.vramBytes) ? `${(Number(result.vramBytes) / 1e9).toFixed(2)} GB` : '—', 'num')}
+                    ${cell('note', hasValue(result?.note) ? escapeHtml(result.note) : '—')}
                     <td>${escapeHtml(new Date(result.timestamp).toLocaleString())}</td>
                     <td><span class="badge ${result.success ? 'ok' : 'fail'}"><span class="dot"></span>${result.status}</span></td>`;
             });
@@ -2115,7 +2208,8 @@
         async function runBenchmark() {
             const selectedModels = Array.from(document.querySelectorAll('.model-checkbox-input:checked')).map(cb => cb.value);
             if (selectedModels.length === 0) { showBenchmarkAlert('Please select at least one installed model to benchmark.', 'error'); return; }
-            const promptConfig = getPromptConfig();
+            const scenarioValue = document.getElementById('scenarioSelect')?.value || '';
+            const promptConfig = scenarioValue ? {} : getPromptConfig();
             if ('customPrompt' in promptConfig && promptConfig.customPrompt === '') { showBenchmarkAlert('Please enter or select a prompt to run.', 'error'); return; }
 
             const runBtn = document.getElementById('runBenchmarkBtn');
@@ -2132,7 +2226,8 @@
             const streamEl = document.getElementById('streamToggle');
             const stream = streamEl ? !!streamEl.checked : true;
             const driverValue = document.getElementById('driverSelect')?.value || '';
-            const contextDepth = parseInt(document.getElementById('depthSelect')?.value, 10) || 0;
+            const contextDepth = scenarioValue ? 0 : (parseInt(document.getElementById('depthSelect')?.value, 10) || 0);
+            const noteValue = (document.getElementById('runNote')?.value || '').trim();
             const repetitions = parseInt(document.getElementById('repeatSelect')?.value, 10) || 1;
 
             try {
@@ -2140,7 +2235,7 @@
                     ? `Benchmarking ${selectedModels.length} model(s) × ${concurrency} concurrent requests…`
                     : `Benchmarking ${selectedModels.length} model(s)…`;
                 progressFill.style.width = '10%';
-                const response = await fetch('/api/run-benchmark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ models: selectedModels, ...promptConfig, concurrency, stream, driver: driverValue || undefined, contextDepth, repetitions }) });
+                const response = await fetch('/api/run-benchmark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ models: selectedModels, ...promptConfig, concurrency, stream, driver: driverValue || undefined, contextDepth, repetitions, scenario: scenarioValue || undefined, note: noteValue || undefined }) });
                 if (!response.ok) {
                     let errorMessage = 'Failed to run benchmark';
                     try { const err = await response.json(); errorMessage = err.error || errorMessage; }
@@ -2229,6 +2324,7 @@
         applyDocsRoute();
         loadTarget();
         loadDrivers();
+        loadScenarios();
         loadMeta().then(loadAvailableModels);
         loadSystemSpecs();
         loadResults();

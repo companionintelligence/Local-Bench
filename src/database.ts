@@ -11,6 +11,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as path from 'path';
 import { SystemSpecs } from './systemSpecs';
 import type { BenchmarkResult, BenchmarkAggregate } from './benchmark';
+import type { EngineInfo } from './engineInfo';
 
 /**
  * The result fields that arrived with CI-Hub pool benchmarking. src/benchmark.ts
@@ -90,7 +91,26 @@ const BENCHMARK_RESULT_COLUMNS: ReadonlyArray<[column: string, type: string]> = 
   ['cold', 'INTEGER'],
   ['repeat_index', 'INTEGER'],
   ['profile', 'TEXT'],
-  ['prompt_tokens_per_second', 'REAL']
+  ['prompt_tokens_per_second', 'REAL'],
+  ['scenario', 'TEXT'],
+  ['requested_prompt_tokens', 'INTEGER'],
+  ['requested_gen_tokens', 'INTEGER'],
+  ['finish_reason', 'TEXT'],
+  ['engine_json', 'TEXT'],
+  ['vram_bytes', 'INTEGER'],
+  ['power_watts', 'REAL'],
+  ['power_source', 'TEXT'],
+  ['power_note', 'TEXT'],
+  ['note', 'TEXT']
+];
+
+/** Columns added to benchmark_aggregates after the original schema shipped. Nullable, as above. */
+const BENCHMARK_AGGREGATE_COLUMNS: ReadonlyArray<[column: string, type: string]> = [
+  ['vram_bytes', 'INTEGER'],
+  ['power_watts', 'REAL'],
+  ['power_source', 'TEXT'],
+  ['power_note', 'TEXT'],
+  ['tokens_per_joule', 'REAL']
 ];
 
 /**
@@ -182,6 +202,8 @@ export function initDatabase(): DatabaseSync {
       FOREIGN KEY (system_specs_id) REFERENCES system_specs(id)
     )
   `);
+
+  ensureColumns(db, 'benchmark_aggregates', BENCHMARK_AGGREGATE_COLUMNS);
 
   // Create indexes for better query performance
   db.exec(`
@@ -287,8 +309,10 @@ export function saveBenchmarkResults(results: BenchmarkResultRecord[], systemSpe
       ttft_ms, prompt_tokens, load_ms, prompt_eval_ms, eval_ms,
       decode_tokens_per_second, concurrency, batch_id,
       driver, seat, timing_source, context_depth, context_window,
-      cold, repeat_index, profile, prompt_tokens_per_second
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      cold, repeat_index, profile, prompt_tokens_per_second,
+      scenario, requested_prompt_tokens, requested_gen_tokens, finish_reason, engine_json,
+      vram_bytes, power_watts, power_source, power_note, note
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // node:sqlite has no built-in `database.transaction()` helper (unlike
@@ -327,7 +351,17 @@ export function saveBenchmarkResults(results: BenchmarkResultRecord[], systemSpe
         result.cold === undefined ? null : result.cold ? 1 : 0,
         optNum(result.repeatIndex),
         optText(result.profile),
-        optNum(result.promptTokensPerSecond)
+        optNum(result.promptTokensPerSecond),
+        optText(result.scenario),
+        optNum(result.requestedPromptTokens),
+        optNum(result.requestedGenTokens),
+        optText(result.finishReason),
+        result.engine ? JSON.stringify(result.engine) : null,
+        optNum(result.vramBytes),
+        optNum(result.powerWatts),
+        optText(result.powerSource),
+        optText(result.powerNote),
+        optText(result.note)
       );
     }
     database.exec('COMMIT');
@@ -355,7 +389,25 @@ function benchmarkResultColumns(prefix = ''): string {
       ${p}concurrency, ${p}batch_id as batchId,
       ${p}driver, ${p}seat, ${p}timing_source as timingSource, ${p}context_depth as contextDepth,
       ${p}context_window as contextWindow, ${p}cold, ${p}repeat_index as repeatIndex,
-      ${p}profile, ${p}prompt_tokens_per_second as promptTokensPerSecond`;
+      ${p}profile, ${p}prompt_tokens_per_second as promptTokensPerSecond,
+      ${p}scenario, ${p}requested_prompt_tokens as requestedPromptTokens,
+      ${p}requested_gen_tokens as requestedGenTokens, ${p}finish_reason as finishReason,
+      ${p}engine_json as engineJson, ${p}vram_bytes as vramBytes,
+      ${p}power_watts as powerWatts, ${p}power_source as powerSource,
+      ${p}power_note as powerNote, ${p}note`;
+}
+
+/**
+ * A raw benchmark_results row as the record type: success as a boolean, and the engine
+ * metadata parsed back from its JSON column.
+ */
+function asResultRecord(row: any): BenchmarkResultRecord {
+  const { engineJson, ...rest } = row;
+  return {
+    ...rest,
+    success: Boolean(row.success),
+    engine: engineJson ? safeJsonParse<EngineInfo | undefined>(engineJson, undefined) : undefined
+  };
 }
 
 /**
@@ -372,10 +424,7 @@ export function getAllBenchmarkResults(): BenchmarkResultRecord[] {
 
   const rows = stmt.all() as any[];
 
-  return rows.map(row => ({
-    ...row,
-    success: Boolean(row.success)
-  }));
+  return rows.map(asResultRecord);
 }
 
 /**
@@ -393,10 +442,7 @@ export function getBenchmarkResultsByModel(model: string): BenchmarkResultRecord
 
   const rows = stmt.all(model) as any[];
 
-  return rows.map(row => ({
-    ...row,
-    success: Boolean(row.success)
-  }));
+  return rows.map(asResultRecord);
 }
 
 /**
@@ -516,7 +562,17 @@ function mapResultsWithSpecs(rows: any[]): Array<BenchmarkResultRecord & { syste
       cold: row.cold === null || row.cold === undefined ? undefined : Boolean(row.cold),
       repeatIndex: row.repeatIndex ?? undefined,
       profile: row.profile ?? undefined,
-      promptTokensPerSecond: row.promptTokensPerSecond ?? undefined
+      promptTokensPerSecond: row.promptTokensPerSecond ?? undefined,
+      scenario: row.scenario ?? undefined,
+      requestedPromptTokens: row.requestedPromptTokens ?? undefined,
+      requestedGenTokens: row.requestedGenTokens ?? undefined,
+      finishReason: row.finishReason ?? undefined,
+      engine: row.engineJson ? safeJsonParse<EngineInfo | undefined>(row.engineJson, undefined) : undefined,
+      vramBytes: row.vramBytes ?? undefined,
+      powerWatts: row.powerWatts ?? undefined,
+      powerSource: row.powerSource ?? undefined,
+      powerNote: row.powerNote ?? undefined,
+      note: row.note ?? undefined
     };
 
     if (row.serverName) {
@@ -553,8 +609,9 @@ export function saveBenchmarkAggregate(aggregate: BenchmarkAggregate, systemSpec
       batch_id, model, concurrency, wall_seconds, aggregate_tokens_per_second,
       median_ttft_ms, median_decode_tokens_per_second,
       served_by_counts, backend_counts, successes, failures,
-      timestamp, system_specs_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      timestamp, system_specs_id,
+      vram_bytes, power_watts, power_source, power_note, tokens_per_joule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(batch_id) DO UPDATE SET
       model = excluded.model,
       concurrency = excluded.concurrency,
@@ -567,7 +624,12 @@ export function saveBenchmarkAggregate(aggregate: BenchmarkAggregate, systemSpec
       successes = excluded.successes,
       failures = excluded.failures,
       timestamp = excluded.timestamp,
-      system_specs_id = excluded.system_specs_id
+      system_specs_id = excluded.system_specs_id,
+      vram_bytes = excluded.vram_bytes,
+      power_watts = excluded.power_watts,
+      power_source = excluded.power_source,
+      power_note = excluded.power_note,
+      tokens_per_joule = excluded.tokens_per_joule
   `);
 
   stmt.run(
@@ -583,7 +645,12 @@ export function saveBenchmarkAggregate(aggregate: BenchmarkAggregate, systemSpec
     aggregate.successes,
     aggregate.failures,
     new Date().toISOString(),
-    systemSpecsId || null
+    systemSpecsId || null,
+    optNum(aggregate.vramBytes),
+    optNum(aggregate.powerWatts),
+    optText(aggregate.powerSource),
+    optText(aggregate.powerNote),
+    optNum(aggregate.tokensPerJoule)
   );
 
   // lastInsertRowid is not updated by the DO UPDATE branch, so look the row up.
@@ -606,7 +673,9 @@ export function getRecentAggregates(limit?: number): BenchmarkAggregateRecord[] 
       median_ttft_ms as medianTtftMs,
       median_decode_tokens_per_second as medianDecodeTokensPerSecond,
       served_by_counts as servedByCounts, backend_counts as backendCounts,
-      successes, failures, timestamp, system_specs_id as systemSpecsId
+      successes, failures, timestamp, system_specs_id as systemSpecsId,
+      vram_bytes as vramBytes, power_watts as powerWatts, power_source as powerSource,
+      power_note as powerNote, tokens_per_joule as tokensPerJoule
     FROM benchmark_aggregates
     ORDER BY timestamp DESC, id DESC
   `;
@@ -629,7 +698,12 @@ export function getRecentAggregates(limit?: number): BenchmarkAggregateRecord[] 
     successes: row.successes,
     failures: row.failures,
     timestamp: row.timestamp,
-    systemSpecsId: row.systemSpecsId ?? undefined
+    systemSpecsId: row.systemSpecsId ?? undefined,
+    vramBytes: row.vramBytes ?? undefined,
+    powerWatts: row.powerWatts ?? undefined,
+    powerSource: row.powerSource ?? undefined,
+    powerNote: row.powerNote ?? undefined,
+    tokensPerJoule: row.tokensPerJoule ?? undefined
   }));
 }
 

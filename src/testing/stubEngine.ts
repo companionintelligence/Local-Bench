@@ -1,11 +1,22 @@
 /**
  * An in-process stand-in for an inference engine, for contract tests. It serves the route
- * shapes Local-Bench reads (Ollama's /api/generate and /api/tags, the OpenAI-compatible
- * /v1/chat/completions and /v1/models, and llama.cpp's /props) over real HTTP. Test-only:
- * jest does not match this path, and nothing in the product imports it.
+ * shapes Local-Bench reads (Ollama's /api/generate, /api/tags, /api/version and /api/ps, the
+ * OpenAI-compatible /v1/chat/completions and /v1/models, and llama.cpp's /props) over real HTTP.
+ * Test-only: jest does not match this path, and nothing in the product imports it.
  */
 import * as fs from 'fs';
 import * as http from 'http';
+
+/** What the stub's Ollama /api/version reports. */
+export const STUB_OLLAMA_VERSION = '0.33.3';
+/** The digest the stub's Ollama /api/tags reports for gemma3:1b. */
+export const STUB_OLLAMA_DIGEST = 'sha256:8648f39daa8f5c0e1b2d3f4a5b6c7d8e9f00112233445566778899aabbccdd';
+/** What the stub's Ollama /api/ps reports for the loaded model: GPU bytes and runtime context. */
+export const STUB_OLLAMA_VRAM_BYTES = 1400000000;
+export const STUB_OLLAMA_CONTEXT = 4096;
+/** What the stub's llama.cpp /props reports as its build and slot count. */
+export const STUB_LLAMACPP_BUILD = 'b8751-stub';
+export const STUB_LLAMACPP_SLOTS = 4;
 
 export interface StubOptions {
   engine: 'ollama' | 'openai' | 'llamacpp';
@@ -29,6 +40,12 @@ export interface StubOptions {
   loadDurationNs?: number;
   /** The text the engine answers with. */
   reply?: string;
+  /**
+   * Generate this many tokens per answer instead of the reply's words. A cap in the request
+   * (Ollama's num_predict, or the OpenAI-style max_tokens) cuts the answer short and gives
+   * finish reason 'length'; an answer that ends by itself gives 'stop'.
+   */
+  generateTokens?: number;
 }
 
 export interface RecordedRequest {
@@ -56,6 +73,11 @@ function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
+/** A numeric cap from a request body, or undefined when the request sets none. */
+function capOf(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 export function startStubEngine(options: StubOptions): Promise<StubEngine> {
   const requests: RecordedRequest[] = [];
   const reply = options.reply ?? 'Hello there friend';
@@ -66,8 +88,19 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
     res.end(JSON.stringify(body));
   };
 
-  const ollamaStats = (body: any) => ({
-    eval_count: words.length,
+  /** The tokens one answer carries, and why it ended: 'length' when the cap cut it short. */
+  const answer = (cap: number | undefined): { tokens: string[]; finish: 'stop' | 'length' } => {
+    const full = options.generateTokens !== undefined
+      ? Array.from({ length: options.generateTokens }, (_, i) => `tok${i}`)
+      : words;
+    if (cap === undefined || cap >= full.length) {
+      return { tokens: full, finish: 'stop' };
+    }
+    return { tokens: full.slice(0, Math.max(0, cap)), finish: 'length' };
+  };
+
+  const ollamaStats = (tokens: number, body: any) => ({
+    eval_count: tokens,
     eval_duration: 50_000_000,
     prompt_eval_count: countWords(String(body?.prompt ?? '')),
     prompt_eval_duration: 20_000_000,
@@ -75,12 +108,13 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
   });
 
   const ollamaGenerate = (res: http.ServerResponse, body: any): void => {
+    const { tokens, finish } = answer(capOf(body?.options?.num_predict));
     if (body?.stream === false) {
       if (options.streamError) {
         send(res, 200, { error: options.streamError });
         return;
       }
-      send(res, 200, { response: reply, done: true, ...ollamaStats(body) });
+      send(res, 200, { response: tokens.join(' '), done: true, done_reason: finish, ...ollamaStats(tokens.length, body) });
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson', ...options.headers });
@@ -92,10 +126,10 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
       res.end(fs.readFileSync(options.ollamaFixture, 'utf8'));
       return;
     }
-    for (const word of words) {
-      res.write(JSON.stringify({ model: body?.model, response: `${word} `, done: false }) + '\n');
+    for (const token of tokens) {
+      res.write(JSON.stringify({ model: body?.model, response: `${token} `, done: false }) + '\n');
     }
-    res.end(JSON.stringify({ model: body?.model, response: '', done: true, ...ollamaStats(body) }) + '\n');
+    res.end(JSON.stringify({ model: body?.model, response: '', done: true, done_reason: finish, ...ollamaStats(tokens.length, body) }) + '\n');
   };
 
   const chat = (res: http.ServerResponse, body: any): void => {
@@ -105,10 +139,11 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
     }
     const promptTokens = countWords(lastUserText(body));
     const timings = options.timings ? LLAMACPP_TIMINGS : undefined;
+    const { tokens, finish } = answer(capOf(body?.max_tokens));
     if (!body?.stream) {
       send(res, 200, {
-        choices: [{ message: { content: reply } }],
-        usage: options.omitUsage ? undefined : { completion_tokens: words.length, prompt_tokens: promptTokens },
+        choices: [{ message: { content: tokens.join(' ') }, finish_reason: finish }],
+        usage: options.omitUsage ? undefined : { completion_tokens: tokens.length, prompt_tokens: promptTokens },
         ...(timings ? { timings } : {})
       });
       return;
@@ -124,12 +159,12 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
       res.end('data: [DONE]\n\n');
       return;
     }
-    for (const word of words) {
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `${word} ` } }] })}\n\n`);
+    for (const token of tokens) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `${token} ` } }] })}\n\n`);
     }
-    const final: Record<string, unknown> = { choices: [{ delta: {}, finish_reason: 'stop' }] };
+    const final: Record<string, unknown> = { choices: [{ delta: {}, finish_reason: finish }] };
     if (body?.stream_options?.include_usage && !options.omitUsage) {
-      final.usage = { completion_tokens: words.length, prompt_tokens: promptTokens };
+      final.usage = { completion_tokens: tokens.length, prompt_tokens: promptTokens };
     }
     if (timings) {
       final.timings = timings;
@@ -146,7 +181,32 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
     }
     if (req.method === 'GET' && path === '/api/tags') {
       if (options.engine === 'ollama') {
-        send(res, 200, { models: [{ name: 'gemma3:1b' }] });
+        send(res, 200, {
+          models: [{
+            name: 'gemma3:1b',
+            model: 'gemma3:1b',
+            digest: STUB_OLLAMA_DIGEST,
+            details: { format: 'gguf', family: 'gemma3', parameter_size: '999.89M', quantization_level: 'Q4_K_M' }
+          }]
+        });
+      } else {
+        send(res, 404, { error: 'not found' });
+      }
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/version') {
+      if (options.engine === 'ollama') {
+        send(res, 200, { version: STUB_OLLAMA_VERSION });
+      } else {
+        send(res, 404, { error: 'not found' });
+      }
+      return;
+    }
+    if (req.method === 'GET' && path === '/api/ps') {
+      if (options.engine === 'ollama') {
+        send(res, 200, {
+          models: [{ name: 'gemma3:1b', model: 'gemma3:1b', size: 1500000000, size_vram: STUB_OLLAMA_VRAM_BYTES, context_length: STUB_OLLAMA_CONTEXT }]
+        });
       } else {
         send(res, 404, { error: 'not found' });
       }
@@ -154,7 +214,11 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
     }
     if (req.method === 'GET' && path === '/props') {
       if (options.engine === 'llamacpp') {
-        send(res, 200, { default_generation_settings: { n_ctx: 4096 } });
+        send(res, 200, {
+          build_info: STUB_LLAMACPP_BUILD,
+          total_slots: STUB_LLAMACPP_SLOTS,
+          default_generation_settings: { n_ctx: 4096 }
+        });
       } else {
         send(res, 404, { error: 'not found' });
       }
@@ -163,6 +227,8 @@ export function startStubEngine(options: StubOptions): Promise<StubEngine> {
     if (req.method === 'GET' && path === '/v1/models') {
       if (options.engine === 'ollama') {
         send(res, 404, { error: 'not found' });
+      } else if (options.engine === 'llamacpp') {
+        send(res, 200, { data: [{ id: 'stub-model', object: 'model', meta: { size: 1100000000 } }] });
       } else {
         send(res, 200, { data: [{ id: 'stub-model', object: 'model' }] });
       }
