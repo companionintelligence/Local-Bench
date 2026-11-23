@@ -160,7 +160,8 @@ npm run strix-halo benchmark <model-path> [options]
 
 **Options:**
 - `--toolbox <name>` - Specify which toolbox to use (default: llama-rocm-7.2)
-- `--context <size>` - Context size (default: 8192)
+- `--depth <tokens>` - Prefilled context depth, measured with llama-bench `-d` (default: 0)
+- `--repetitions <n>` - Repetitions per test, llama-bench `-r` (default: 5)
 - `--flash-attention` - Enable flash attention (recommended, enabled by default)
 - `--no-mmap` - Disable memory mapping (recommended, enabled by default)
 
@@ -173,8 +174,8 @@ npm run strix-halo benchmark models/model.gguf
 # Benchmark with specific toolbox
 npm run strix-halo benchmark models/model.gguf --toolbox llama-vulkan-radv
 
-# Benchmark with custom context size
-npm run strix-halo benchmark models/model.gguf --context 16384
+# Benchmark with 16K of prefilled context
+npm run strix-halo benchmark models/model.gguf --depth 16384
 
 # Benchmark with Vulkan backend
 npm run strix-halo benchmark models/model.gguf --toolbox llama-vulkan-radv
@@ -186,8 +187,8 @@ npm run strix-halo benchmark models/model.gguf --toolbox llama-vulkan-radv
 
 STRIX Halo requires specific settings for optimal performance and stability:
 
-1. **Flash Attention**: Must be enabled (`-fa 1`)
-2. **No Memory Mapping**: Must be disabled (`--no-mmap`)
+1. **Flash Attention**: Must be enabled (`-fa on`)
+2. **No Memory Mapping**: Must be disabled (`--no-mmap`). The tool passes it to llama-bench as `-lm none`. On llama-bench 1.0.0 the flag is accepted and reported in the output as `load_mode: none`; on the STRIX Halo toolboxes, confirm it on the machine.
 3. **GPU Layers**: Offload maximum layers to GPU (`-ngl 99` or `-ngl 999`)
 
 These settings are enabled by default in the STRIX Halo benchmark commands.
@@ -204,11 +205,13 @@ These settings are enabled by default in the STRIX Halo benchmark commands.
 - Easier setup (no ROCm driver required)
 - Use `llama-vulkan-radv` for best performance
 
-### Context Size Recommendations
+### Context Depth Recommendations
 
-- **8K context**: Good balance for most tasks
-- **16K context**: For longer conversations
-- **32K+ context**: For very long documents (requires more VRAM)
+Use `--depth` to measure the speed at the context length you plan to run:
+
+- **8K** (`--depth 8192`): Good balance for most tasks
+- **16K** (`--depth 16384`): For longer conversations
+- **32K+** (`--depth 32768`): For very long documents (requires more VRAM)
 
 ## Troubleshooting
 
@@ -323,12 +326,13 @@ import { benchmarkWithToolbox } from './strixHalo';
 const result = await benchmarkWithToolbox({
   modelPath: '/path/to/model.gguf',
   toolboxName: 'llama-rocm-7.2',
-  contextSize: 8192,
+  depth: 8192,
   flashAttention: true,
   noMmap: true
 });
 
-console.log(`Tokens/sec: ${result.tokensPerSecond}`);
+// Decode speed is the number to compare; result.rows holds every llama-bench test (parsed from -o json).
+console.log(`Decode tok/s: ${result.decodeTokensPerSecond}`);
 ```
 
 ## Resources

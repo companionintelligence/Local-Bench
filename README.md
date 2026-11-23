@@ -150,10 +150,38 @@ Inside a Hub-installed app you do not need to set anything once the marketplace 
 | `OLLAMA_API_URL` | Ollama-native base URL. May be a pool proxy. Wins when set. | `http://localhost:11434` |
 | `CI_LLM_BASE_URL` | OpenAI-compatible base URL, with or without a trailing `/v1`. Used when `OLLAMA_API_URL` is unset or empty. | unset |
 | `CI_LLM_API_KEY` | Sent as `Authorization: Bearer` on every request when set. | unset |
-| `BENCH_TRANSPORT` | Force `ollama` or `openai`. Otherwise the tool probes `GET {base}/api/tags` once: answers means Ollama-native, anything else means OpenAI-compatible. | auto |
+| `BENCH_DRIVER` | The engine to measure: `ollama`, `openai`, `llamacpp`, `vllm`, `lemonade`, `omlx` or `localai` (see Engines and drivers). Unknown names are an error. | detected |
+| `BENCH_TRANSPORT` | Legacy alias: `ollama` or `openai`, the wire protocol. Use `BENCH_DRIVER` for new setups. Other values are an error. | detected |
 | `PORT` | Dashboard port. | `3000` |
 
-The OpenAI transport is how you reach an engine directly rather than through the pool: vLLM at `http://host:8000`, Lemonade at `http://host:13305`, Lucebox at `http://host:8216`. Those have no `/api/generate`, so set `CI_LLM_BASE_URL` (or `OLLAMA_API_URL`, either works) to the engine's base and the tool uses `/v1/chat/completions`.
+The OpenAI transport is how you reach an engine directly rather than through the pool: vLLM at `http://host:8000`, Lemonade at `http://host:13305`, and llama.cpp's `llama-server` at its own port. Those have no `/api/generate`, so set `CI_LLM_BASE_URL` (or `OLLAMA_API_URL`, either works) to the engine's base and the tool uses `/v1/chat/completions`.
+
+### Engines and drivers
+
+`BENCH_DRIVER` (or `--driver=<name>` on the CLI) names the engine to measure. Without it the tool detects one: Ollama when `/api/tags` answers, llama.cpp when `/props` answers, and the generic OpenAI driver otherwise. Each driver says what it can measure; a cell the engine does not provide is stated as unsupported, not left blank.
+
+| Driver | Protocol | Default URL | Engine-reported timings | Context window |
+| --- | --- | --- | --- | --- |
+| `ollama` | Ollama native API | `http://localhost:11434` | yes (eval durations) | not reported |
+| `llamacpp` | llama.cpp `llama-server` | `http://localhost:8080` | yes (`timings` block) | yes (`/props`) |
+| `openai` | any OpenAI-compatible server | set `CI_LLM_BASE_URL` | no (usage counts only) | not read |
+| `vllm` | vLLM | `http://localhost:8000` | no | not read |
+| `lemonade` | Lemonade | `http://localhost:13305` | no | not read |
+| `omlx` | oMLX | set `CI_LLM_BASE_URL` | no | not read |
+| `localai` | LocalAI | set `CI_LLM_BASE_URL` | no | not read |
+| `llama-bench` | llama.cpp's own benchmark tool (CLI) | a Strix Halo toolbox | yes (engine-native) | not read |
+
+The first seven send requests to an endpoint, so their rows carry seat `app`: the speed an application sees. `llama-bench` runs the engine's own benchmark tool, so its rows carry seat `engine-native`, and the two are never averaged together. Run it with `npm run strix-halo`. The driver list and capabilities are at `GET /api/drivers`.
+
+### Measurement modes
+
+- **Context depth** (`--depth=<tokens>`, or the context depth selector): prefills about this much context before the question. Each request's prompt starts with a nonce, so the engine cannot reuse an earlier prefill, and the prompt actually sent is stored with the row. Several depths in one run: `--depth=0,4096,16384`.
+- **Repetitions** (`--repetitions=<n>`, 1 to 50): repeats the batch and reports the median, mean, standard deviation and a 95% t-interval across repetitions. Each row carries its `repeatIndex`.
+- **Load profiles** (`--profile=constant` or `poisson --rate=<requests per second> --duration=<seconds>`): sends single requests on a schedule, evenly spaced or Poisson. `--seed=<n>` makes a Poisson schedule repeatable. The summary gives TTFT and inter-token latency at p50, p90 and p99, and **goodput**: the share of requests that met `--ttft-slo=<ms>` and `--itl-slo=<ms>`.
+- **Sweep** (`--profile=sweep --rates=1,2,4`): steps through the rates with constant arrivals and stops at saturation: the first rate where more than 5% of requests fail, or where p90 TTFT breaks the TTFT target.
+- **Cold and warm**: the first request to a model on a target is marked `cold`, and so is any request that loaded the model (Ollama's `load_duration`).
+
+Load profiles and sweeps run from the CLI. The dashboard runs batches, depths and repetitions.
 
 ### Concurrency
 
@@ -167,8 +195,10 @@ Concurrency is the interesting knob for a pool. A single request measures one no
 - **TTFT** (`ttftMs`) is milliseconds from sending the request to the first content chunk. Only measured when streaming (the default). This is the latency a user feels before text starts appearing; on a pool it includes the routing hop and any model load on the chosen node.
 - **Decode tok/s** (`decodeTokensPerSecond`) is the engine's generation speed with everything before the first token excluded. On Ollama it is `eval_count / eval_duration` from the response's own timings; on an OpenAI-compatible engine it is tokens over the time after TTFT. This is the number to compare engines and hardware on, since it is insensitive to load time and queueing.
 - **Aggregate tok/s** (`aggregateTokensPerSecond`) is the sum of all tokens in a batch divided by the batch's wall time. This is the pool's throughput: what N simultaneous apps would get out of it together. Compare it against the concurrency-1 number to see how much the pool scales.
-- **Served by / backend** come from the `X-Hub-Pool-Served-By` and `X-Hub-Pool-Backend` response headers the pool adds (`local` or a peer's MagicDNS name; `ollama`, `vllm`, `lemonade`, `lucebox`, `dspark`, or `mtplx`). They are empty on a direct Ollama or engine target. `requestId` is `X-Hub-Pool-Request-Id`, useful for finding the request in the Hub's logs.
+- **Served by / backend** come from the `X-Hub-Pool-Served-By` and `X-Hub-Pool-Backend` response headers the pool adds (`local` or a peer's MagicDNS name; `ollama`, `vllm`, `lemonade`, `omlx` or `localai`). They are empty on a direct Ollama or engine target. `requestId` is `X-Hub-Pool-Request-Id`, useful for finding the request in the Hub's logs.
 - **Load / prompt eval / eval** (`loadMs`, `promptEvalMs`, `evalMs`) are Ollama's own timing breakdown, in milliseconds. Only present on the Ollama transport.
+- **Prompt speed** (`promptTokensPerSecond`) is the engine's own figure when it reports one (Ollama, llama.cpp). Otherwise it is prompt tokens over TTFT, which includes the network round trip.
+- **Driver, seat and timing source** (`driver`, `seat`, `timingSource`) say what was measured and by whose clock: `timingSource` is `ollama`, `llamacpp`, or `client` (this tool's clock).
 
 The CLI prints one line per request and then an `=` line with the batch aggregate:
 
@@ -186,8 +216,9 @@ The dashboard shows the same: a banner naming the target and whether it is a poo
 
 The dashboard's server exposes these for scripts:
 
-- `GET /api/target` → `{ url, transport, path, pool }`; `path` is `pool` when the URL contains `/inference/pool`, and `pool.servedByHeaderSeen` says whether the pool has answered this process yet.
-- `POST /api/run-benchmark` with `{ models, promptId?, customPrompt?, concurrency?, stream? }` → `{ success, results, aggregates }`.
+- `GET /api/target` → `{ url, transport, driver, seat, path, pool }`; `path` is `pool` when the URL contains `/inference/pool`, and `pool.servedByHeaderSeen` says whether the pool has answered this process yet.
+- `GET /api/drivers` → the HTTP engine drivers, with each one's capabilities and the reason for any it does not provide.
+- `POST /api/run-benchmark` with `{ models, promptId?, customPrompt?, concurrency?, stream?, driver?, contextDepth?, repetitions? }` → `{ success, results, aggregates }`. An invalid value is a 400 with the reason.
 - `GET /api/results` → every stored row, new fields `null` on rows written before them.
 - `GET /api/aggregates?limit=N` → recent batch aggregates.
 
@@ -245,7 +276,11 @@ Edit [`src/benchmark.ts`](src/benchmark.ts) to customize:
 npm test              # Jest unit tests
 npm run test:coverage
 npm run build         # typecheck and emit to dist/
+npm run lint          # strict compiler checks on source files
+npm run smoke -- gemma3:1b   # one live request to the configured engine (needs it running)
 ```
+
+The contract tests run the real benchmark code over real HTTP against an in-process engine stub, replaying a captured Ollama stream. A conformance matrix (`src/conformance.ts`) records, per driver and dimension, which test covers it or why it is skipped, and whether the driver has run against a live engine.
 
 ## Running under Deno
 

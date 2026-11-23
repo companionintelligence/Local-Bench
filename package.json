@@ -5,6 +5,7 @@
   "main": "dist/benchmark.js",
   "type": "commonjs",
   "scripts": {
+    "lint": "tsc -p tsconfig.lint.json",
     "build": "tsc",
     "benchmark": "npm run build && node dist/benchmark.js",
     "server": "npm run build && node dist/server.js",
@@ -12,7 +13,8 @@
     "strix-halo": "npm run build && node dist/strixHaloCli.js",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "smoke": "npm run build && node dist/smoke.js"
   },
   "keywords": [
     "llm",

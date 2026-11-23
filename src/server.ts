@@ -3,12 +3,11 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getDatabase, getRecentAggregates } from './database';
+import { initDatabase, getAllBenchmarkResults, getLatestSystemSpecs, getBenchmarkResultsWithSpecs, getRecentAggregates } from './database';
 import {
   BenchmarkResult,
   BenchmarkAggregate,
   MAX_CONCURRENCY,
-  benchmarkModelConcurrently,
   getConfiguredBaseUrl,
   getOllamaModelCatalog,
   resetTargetCache,
@@ -21,6 +20,9 @@ import {
   INTELLIGENCE_INDEX_AS_OF
 } from './benchmark';
 import axios from 'axios';
+import { describeHttpDrivers, parseDriverType, DriverType } from './drivers';
+import { parseContextDepth } from './measure';
+import { benchmarkRepeated, MAX_REPETITIONS } from './benchmark';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const PROBE_TIMEOUT_MS = 10000;
@@ -40,6 +42,12 @@ interface BenchmarkRequest {
   customPrompt?: string;
   concurrency?: number;
   stream?: boolean;
+  /** An HTTP driver name (see /api/drivers). Defaults to detection. */
+  driver?: string;
+  /** Prefilled context depth in tokens, 0 to 32768. */
+  contextDepth?: number;
+  /** Repetitions per model, 1 to 50. */
+  repetitions?: number;
 }
 
 const mimeTypes: MimeTypes = {
@@ -120,7 +128,7 @@ export function resetTargetState(): void {
 
 /**
  * Installed models from whichever protocol the target speaks: /api/tags first
- * (Ollama or a pool proxy), then /v1/models (vLLM, Lemonade, Lucebox, or a
+ * (Ollama or a pool proxy), then /v1/models (vLLM, Lemonade, LocalAI, or a
  * pool's OpenAI surface). Throws when neither answers.
  */
 async function fetchInstalledModels(base: string): Promise<InstalledModel[]> {
@@ -229,6 +237,16 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
     }
   }
 
+  // API endpoint: The HTTP engine drivers and what each one measures or cannot report
+  if (url === '/api/drivers') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({ drivers: describeHttpDrivers() }));
+    return true;
+  }
+
   // API endpoint: What the benchmark is pointed at and how it will talk to it
   if (url === '/api/target') {
     const target = await resolveTarget();
@@ -237,7 +255,7 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*'
     });
-    res.end(JSON.stringify({ url: target.url, transport: target.transport, path: target.path, pool }));
+    res.end(JSON.stringify({ url: target.url, transport: target.transport, driver: target.driver, seat: 'app', path: target.path, pool }));
     return true;
   }
 
@@ -269,9 +287,11 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
 
   // API endpoint: Get available models from the target (Ollama, pool proxy, or
   // an OpenAI-compatible engine); falls back to the curated catalog.
-  if (url === '/api/models') {
+  if (url === '/api/models' || url.startsWith('/api/models?')) {
     try {
-      const models = await fetchInstalledModels(getConfiguredBaseUrl());
+      const requested = new URL(url, 'http://localhost').searchParams.get('driver');
+      const driver: DriverType | undefined = requested ? parseDriverType(requested) : undefined;
+      const models = await fetchInstalledModels(getConfiguredBaseUrl(driver));
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
@@ -326,6 +346,36 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
           }
           const stream = data.stream === undefined ? true : Boolean(data.stream);
 
+          let driver: DriverType | undefined;
+          if (data.driver !== undefined && data.driver !== null && data.driver !== '') {
+            try {
+              driver = parseDriverType(String(data.driver));
+            } catch (error) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (error as Error).message }));
+              return;
+            }
+            if (driver === 'llama-bench') {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'llama-bench runs a local binary, not an endpoint. Use npm run strix-halo for it.' }));
+              return;
+            }
+          }
+
+          const contextDepth = data.contextDepth === undefined ? 0 : parseContextDepth(data.contextDepth);
+          if (contextDepth === undefined) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid contextDepth: expected a whole number of tokens from 0 to 32768' }));
+            return;
+          }
+
+          const repetitions = data.repetitions === undefined ? 1 : Number(data.repetitions);
+          if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > MAX_REPETITIONS) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: `Invalid repetitions: expected a whole number from 1 to ${MAX_REPETITIONS}` }));
+            return;
+          }
+
           // Determine prompt to use
           let promptToUse: string | undefined;
           if (data.customPrompt && data.customPrompt.trim()) {
@@ -345,9 +395,9 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
           const results: BenchmarkResult[] = [];
           const aggregates: BenchmarkAggregate[] = [];
           for (const model of models) {
-            const batch = await benchmarkModelConcurrently(model, promptToUse, concurrency, { stream });
-            results.push(...batch.results);
-            aggregates.push(batch.aggregate);
+            const run = await benchmarkRepeated(model, promptToUse, repetitions, concurrency, { stream, driver, contextDepth });
+            results.push(...run.results);
+            aggregates.push(...run.aggregates);
           }
           noteResultRows(results);
 

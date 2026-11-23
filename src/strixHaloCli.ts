@@ -10,8 +10,6 @@ import {
   benchmarkWithToolbox,
   formatStrixHaloInfo,
   STRIX_HALO_TOOLBOXES,
-  StrixHaloToolbox,
-  StrixHaloBenchmarkResult
 } from './strixHalo';
 import { initDatabase, saveBenchmarkResults, saveSystemSpecs } from './database';
 import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
@@ -38,7 +36,8 @@ COMMANDS:
 
 OPTIONS FOR BENCHMARK:
   --toolbox <name>    Specify toolbox to use (default: llama-rocm-7.2)
-  --context <size>    Context size (default: 8192)
+  --depth <tokens>    Prefilled context depth, llama-bench -d (default: 0)
+  --repetitions <n>   Repetitions per test, llama-bench -r (default: 5)
   --flash-attention   Enable flash attention (recommended for STRIX Halo)
   --no-mmap           Disable memory mapping (recommended for STRIX Halo)
 
@@ -206,7 +205,8 @@ async function cmdSetupAll(): Promise<void> {
 interface BenchmarkOptions {
   modelPath: string;
   toolbox: string;
-  contextSize: number;
+  depth: number;
+  repetitions: number;
   flashAttention: boolean;
   noMmap: boolean;
 }
@@ -215,7 +215,8 @@ function parseBenchmarkArgs(args: string[]): BenchmarkOptions {
   const options: BenchmarkOptions = {
     modelPath: '',
     toolbox: 'llama-rocm-7.2',
-    contextSize: 8192,
+    depth: 0,
+    repetitions: 5,
     flashAttention: true,
     noMmap: true
   };
@@ -225,13 +226,23 @@ function parseBenchmarkArgs(args: string[]): BenchmarkOptions {
     
     if (arg === '--toolbox' && i + 1 < args.length) {
       options.toolbox = args[++i];
-    } else if (arg === '--context' && i + 1 < args.length) {
-      const contextValue = parseInt(args[++i], 10);
-      if (isNaN(contextValue) || contextValue <= 0) {
-        console.error(`Error: Invalid context size '${args[i]}'. Must be a positive number.`);
+    } else if (arg === '--context') {
+      console.error('Error: --context is no longer passed to llama-bench (it has no context-size flag). Use --depth=<tokens> to measure with prefilled context.');
+      process.exit(1);
+    } else if (arg === '--depth' && i + 1 < args.length) {
+      const depth = Number(args[++i]);
+      if (!Number.isInteger(depth) || depth < 0) {
+        console.error(`Error: Invalid depth '${args[i]}'. Must be a whole number of tokens, 0 or more.`);
         process.exit(1);
       }
-      options.contextSize = contextValue;
+      options.depth = depth;
+    } else if (arg === '--repetitions' && i + 1 < args.length) {
+      const repetitions = Number(args[++i]);
+      if (!Number.isInteger(repetitions) || repetitions < 1) {
+        console.error(`Error: Invalid repetitions '${args[i]}'. Must be a whole number, 1 or more.`);
+        process.exit(1);
+      }
+      options.repetitions = repetitions;
     } else if (arg === '--flash-attention') {
       options.flashAttention = true;
     } else if (arg === '--no-mmap') {
@@ -273,7 +284,8 @@ async function cmdBenchmark(args: string[]): Promise<void> {
   console.log(`Model: ${path.basename(options.modelPath)}`);
   console.log(`Toolbox: ${options.toolbox}`);
   console.log(`Backend: ${toolbox.backend}`);
-  console.log(`Context Size: ${options.contextSize}`);
+  console.log(`Context depth: ${options.depth} tokens (prefilled, llama-bench -d)`);
+  console.log(`Repetitions: ${options.repetitions} (llama-bench -r)`);
   console.log(`Flash Attention: ${options.flashAttention ? 'Enabled' : 'Disabled'}`);
   console.log(`No-mmap: ${options.noMmap ? 'Enabled' : 'Disabled'}`);
   console.log('');
@@ -281,7 +293,8 @@ async function cmdBenchmark(args: string[]): Promise<void> {
   const result = await benchmarkWithToolbox({
     modelPath: options.modelPath,
     toolboxName: options.toolbox,
-    contextSize: options.contextSize,
+    depth: options.depth,
+    repetitions: options.repetitions,
     flashAttention: options.flashAttention,
     noMmap: options.noMmap
   });
@@ -289,7 +302,13 @@ async function cmdBenchmark(args: string[]): Promise<void> {
   if (result.success) {
     console.log('\n=== Benchmark Results ===');
     console.log(`Model: ${result.model}`);
-    console.log(`Tokens per second: ${result.tokensPerSecond.toFixed(2)}`);
+    if (result.promptTokensPerSecond !== undefined) {
+      console.log(`Prompt processing: ${result.promptTokensPerSecond.toFixed(2)} tokens/second`);
+    }
+    const spread = result.decodeSamples && result.decodeSamples.length > 1 && result.decodeStddevTokensPerSecond !== undefined
+      ? ` ± ${result.decodeStddevTokensPerSecond.toFixed(2)} over ${result.decodeSamples.length} runs`
+      : '';
+    console.log(`Decode: ${result.tokensPerSecond.toFixed(2)} tokens/second${spread}`);
     console.log(`Total tokens: ${result.totalTokens}`);
     console.log(`Duration: ${result.durationSeconds.toFixed(2)}s`);
     console.log(`Backend: ${result.backend}`);
