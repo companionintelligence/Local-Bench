@@ -681,6 +681,34 @@
                         <span class="hint-sm">Requests sent to each model at once. Through a pool they spread across nodes; the aggregate panel shows the combined rate.</span>
                     </div>
                     <div class="run-option">
+                        <label class="field-label" for="driverSelect">Driver</label>
+                        <select class="input" id="driverSelect">
+                            <option value="" selected>Detected from the target</option>
+                        </select>
+                        <span class="hint-sm">Which engine protocol to measure. A pool target still reports the node that answered.</span>
+                    </div>
+                    <div class="run-option">
+                        <label class="field-label" for="depthSelect">Context depth</label>
+                        <select class="input" id="depthSelect">
+                            <option value="0" selected>None</option>
+                            <option value="4096">4,096 tokens</option>
+                            <option value="8192">8,192 tokens</option>
+                            <option value="16384">16,384 tokens</option>
+                            <option value="32768">32,768 tokens</option>
+                        </select>
+                        <span class="hint-sm">Prefills about this much context before the question, so the speed reflects a long conversation.</span>
+                    </div>
+                    <div class="run-option">
+                        <label class="field-label" for="repeatSelect">Repetitions</label>
+                        <select class="input" id="repeatSelect">
+                            <option value="1" selected>1 run</option>
+                            <option value="3">3 runs</option>
+                            <option value="5">5 runs</option>
+                            <option value="10">10 runs</option>
+                        </select>
+                        <span class="hint-sm">Repeats the batch and reports the median and a 95% interval across runs.</span>
+                    </div>
+                    <div class="run-option">
                         <span class="field-label">Streaming</span>
                         <label class="switch" for="streamToggle"><input type="checkbox" id="streamToggle" checked> Stream tokens</label>
                         <span class="hint-sm">Streaming records time to first token. Turn it off to measure a single blocking response.</span>
@@ -796,6 +824,8 @@
                                 <th>Duration</th>
                                 <th data-col="servedBy" hidden>Served by</th>
                                 <th data-col="backend" hidden>Backend</th>
+                                <th data-col="driver" hidden>Driver</th>
+                                <th data-col="contextDepth" hidden>Depth</th>
                                 <th>Timestamp</th>
                                 <th>Status</th>
                             </tr>
@@ -940,7 +970,7 @@
 
         // Columns that only exist for pool-routed or streamed runs. Each is shown in
         // the results table (and the PDF) only when at least one row carries a value.
-        const POOL_COLUMNS = ['decodeTokensPerSecond', 'ttftMs', 'loadMs', 'servedBy', 'backend'];
+        const POOL_COLUMNS = ['decodeTokensPerSecond', 'ttftMs', 'loadMs', 'servedBy', 'backend', 'driver', 'contextDepth'];
 
         function escapeHtml(value) {
             return String(value ?? '')
@@ -1026,7 +1056,10 @@
         // Which pool columns any of these rows actually carry.
         function poolColumnsPresent(results) {
             const present = new Set();
-            (results || []).forEach(r => POOL_COLUMNS.forEach(k => { if (hasValue(r?.[k])) present.add(k); }));
+            (results || []).forEach(r => POOL_COLUMNS.forEach(k => {
+                const shown = k === 'contextDepth' ? Number(r?.contextDepth) > 0 : hasValue(r?.[k]);
+                if (shown) present.add(k);
+            }));
             return present;
         }
 
@@ -1098,6 +1131,24 @@
             return targetInfo?.transport === 'openai' ? 'Engine connected' : 'Ollama connected';
         }
 
+        async function loadDrivers() {
+            const select = document.getElementById('driverSelect');
+            if (!select) return;
+            try {
+                const res = await fetch('/api/drivers');
+                if (!res.ok) return;
+                const data = await res.json();
+                for (const driver of data.drivers || []) {
+                    const option = document.createElement('option');
+                    option.value = driver.type;
+                    option.textContent = driver.label;
+                    select.appendChild(option);
+                }
+            } catch (e) {
+                // The detected option stays available on its own.
+            }
+        }
+
         async function loadTarget() {
             try {
                 const res = await fetch('/api/target');
@@ -1116,6 +1167,7 @@
             const transportTag = t.transport
                 ? `<span class="tag muted" title="Wire protocol used for /api/run-benchmark">${escapeHtml(t.transport === 'openai' ? 'OpenAI-compatible' : 'Ollama API')}</span>`
                 : '';
+            const driverTag = t.driver ? `<span class="tag muted" title="Engine driver (GET /api/drivers)">${escapeHtml(t.driver)}</span>` : '';
             let routedTag = '';
             if (isPool && t.pool && typeof t.pool.servedByHeaderSeen === 'boolean') {
                 routedTag = t.pool.servedByHeaderSeen
@@ -1123,8 +1175,8 @@
                     : '<span class="tag muted" title="No response has carried X-Hub-Pool-Served-By yet">No routed response yet</span>';
             }
             banner.innerHTML = isPool
-                ? `<span>Benchmarking through <strong>CI-Hub pool</strong> at <code>${escapeHtml(t.url)}</code></span><div class="tags"><span class="tag brand">Pool</span>${transportTag}${routedTag}</div>`
-                : `<span><strong>Direct:</strong> <code>${escapeHtml(t.url)}</code></span><div class="tags"><span class="tag">Direct</span>${transportTag}</div>`;
+                ? `<span>Benchmarking through <strong>CI-Hub pool</strong> at <code>${escapeHtml(t.url)}</code></span><div class="tags"><span class="tag brand">Pool</span>${transportTag}${driverTag}${routedTag}</div>`
+                : `<span><strong>Direct:</strong> <code>${escapeHtml(t.url)}</code></span><div class="tags"><span class="tag">Direct</span>${transportTag}${driverTag}</div>`;
             banner.hidden = false;
             // The status pill may have rendered before /api/target answered.
             if (ollamaReachable === true) {
@@ -1369,6 +1421,8 @@
                     <td class="num">${result.duration.toFixed(2)} s</td>
                     ${cell('servedBy', servedHtml)}
                     ${cell('backend', hasValue(result?.backend) ? escapeHtml(result.backend) : '—')}
+                    ${cell('driver', hasValue(result?.driver) ? escapeHtml(result.driver) : '—')}
+                    ${cell('contextDepth', Number(result?.contextDepth) > 0 ? `${Number(result.contextDepth).toLocaleString()} tokens` : '—', 'num')}
                     <td>${escapeHtml(new Date(result.timestamp).toLocaleString())}</td>
                     <td><span class="badge ${result.success ? 'ok' : 'fail'}"><span class="dot"></span>${result.status}</span></td>`;
             });
@@ -2077,13 +2131,16 @@
             const concurrency = Math.min(16, Math.max(1, parseInt(concurrencyEl?.value, 10) || 1));
             const streamEl = document.getElementById('streamToggle');
             const stream = streamEl ? !!streamEl.checked : true;
+            const driverValue = document.getElementById('driverSelect')?.value || '';
+            const contextDepth = parseInt(document.getElementById('depthSelect')?.value, 10) || 0;
+            const repetitions = parseInt(document.getElementById('repeatSelect')?.value, 10) || 1;
 
             try {
                 progressStatus.textContent = concurrency > 1
                     ? `Benchmarking ${selectedModels.length} model(s) × ${concurrency} concurrent requests…`
                     : `Benchmarking ${selectedModels.length} model(s)…`;
                 progressFill.style.width = '10%';
-                const response = await fetch('/api/run-benchmark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ models: selectedModels, ...promptConfig, concurrency, stream }) });
+                const response = await fetch('/api/run-benchmark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ models: selectedModels, ...promptConfig, concurrency, stream, driver: driverValue || undefined, contextDepth, repetitions }) });
                 if (!response.ok) {
                     let errorMessage = 'Failed to run benchmark';
                     try { const err = await response.json(); errorMessage = err.error || errorMessage; }
@@ -2171,6 +2228,7 @@
         // Bootstrap
         applyDocsRoute();
         loadTarget();
+        loadDrivers();
         loadMeta().then(loadAvailableModels);
         loadSystemSpecs();
         loadResults();

@@ -1,0 +1,8 @@
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.561248Z","response":"Greetings","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.584557Z","response":"!","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.60245Z","response":" Nice","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.617194Z","response":" to","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.629469Z","response":" see","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.648269Z","response":" you","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.666145Z","response":".","done":false}
+{"model":"gemma3:1b","created_at":"2026-11-23T03:36:50.670727Z","response":"","done":true,"done_reason":"stop","context":[105,2430,107,37889,29104,528,3493,4171,236761,106,236743,107,105,2028,107,125508,236888,32988,531,1460,611,236761],"total_duration":6731348500,"load_duration":5689837000,"prompt_eval_count":16,"prompt_eval_cached_count":0,"prompt_eval_duration":930667000,"eval_count":8,"eval_duration":108956000}

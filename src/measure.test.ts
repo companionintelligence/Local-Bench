@@ -30,6 +30,14 @@ describe('buildDepthPrompt', () => {
     expect(buildDepthPrompt('Why is the sky blue?', 0)).toBe('Why is the sky blue?');
   });
 
+  it('starts each prompt with a nonce, so no two requests share a prefix', () => {
+    const a = buildDepthPrompt('Why?', 100, 'run-1');
+    const b = buildDepthPrompt('Why?', 100, 'run-2');
+    expect(a.startsWith('Session run-1.')).toBe(true);
+    expect(a.slice(0, 16)).not.toBe(b.slice(0, 16));
+    expect(a.endsWith('\n\nWhy?')).toBe(true);
+  });
+
   it('puts about depth/10 filler sentences before the question', () => {
     const prompt = buildDepthPrompt('Why is the sky blue?', 100);
     expect(prompt.endsWith('\n\nWhy is the sky blue?')).toBe(true);

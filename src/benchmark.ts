@@ -922,7 +922,7 @@ function promptTokensPerSecond(outcome: RunOutcome): number | undefined {
 async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunContext): Promise<BenchmarkResult> {
   const { target, stream, now } = ctx;
   const contextDepth = ctx.contextDepth ?? 0;
-  const requestPrompt = buildDepthPrompt(promptToUse, contextDepth);
+  const requestPrompt = buildDepthPrompt(promptToUse, contextDepth, contextDepth > 0 ? randomUUID() : undefined);
   // The first request to a model on a target is cold. Recorded before any await, so the
   // first request of a concurrent batch is the one marked.
   const key = `${target.url}|${modelName}`;

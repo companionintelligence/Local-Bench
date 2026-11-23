@@ -23,14 +23,19 @@ export function parseContextDepth(value: unknown): number | undefined {
  * The prompt for a context-depth run: neutral filler of about `depthTokens` tokens,
  * then the question, so the question is always the last thing the model reads.
  * Depth 0 returns the question unchanged.
+ *
+ * A nonce at the very start makes every request's prompt differ from the first token on.
+ * Without it, engines reuse the prefill of an identical earlier prompt (Ollama's prompt
+ * cache), and a repeated run would measure a cache hit rather than the prefill.
  */
-export function buildDepthPrompt(question: string, depthTokens: number): string {
+export function buildDepthPrompt(question: string, depthTokens: number, nonce?: string): string {
   if (!depthTokens || depthTokens <= 0) {
     return question;
   }
   const repetitions = Math.ceil(depthTokens / FILLER_TOKENS_PER_REPETITION);
   const filler = Array.from({ length: repetitions }, () => DEPTH_FILLER_SENTENCE).join(' ');
-  return `${filler}\n\n${question}`;
+  const head = nonce ? `Session ${nonce}.\n` : '';
+  return `${head}${filler}\n\n${question}`;
 }
 
 /** Deterministic PRNG (mulberry32) so a seeded Poisson schedule is reproducible. */
