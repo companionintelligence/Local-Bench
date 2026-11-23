@@ -5,37 +5,27 @@ Every direct dependency declared in this repository's manifests — both
 each group. Transitive dependencies are not listed; resolve them with your
 package manager's own `licenses` command.
 
-**14 direct dependencies** across 3 licence groups.
+**9 direct dependencies** across 2 licence groups.
 
-| Licence | Count |
-| --- | ---: |
-| MIT | 10 |
-| Apache-2.0 | 3 |
-| first-party (internal) | 1 |
+| Licence    | Count |
+| ---------- | ----: |
+| MIT        |     8 |
+| Apache-2.0 |     1 |
 
 ## MIT
 
-1. [`axios`](https://axios-http.com) `1.20.0` — runtime
-2. [`better-sqlite3`](http://github.com/WiseLibs/better-sqlite3) `13.0.3` — runtime
-3. [`systeminformation`](https://systeminformation.io) `5.33.13` — runtime
-4. [`@types/axios`](https://www.npmjs.com/package/@types/axios) `0.14.4` — dev
-5. [`@types/better-sqlite3`](https://github.com/DefinitelyTyped/DefinitelyTyped) `9.6.0` — dev
-6. [`@types/jest`](https://github.com/DefinitelyTyped/DefinitelyTyped) `30.0.0` — dev
-7. [`@types/node`](https://github.com/DefinitelyTyped/DefinitelyTyped) `26.6.2` — dev
-8. [`jest`](https://jestjs.io/) `30.5.2` — dev
-9. [`ts-jest`](https://kulshekhar.github.io/ts-jest) `29.4.12` — dev
-10. [`ts-node`](https://typestrong.org/ts-node) `10.9.2` — dev
+1. [`@types/axios`](https://www.npmjs.com/package/@types/axios) `0.14.4` — dev
+2. [`@types/jest`](https://github.com/DefinitelyTyped/DefinitelyTyped) `30.0.0` — dev
+3. [`@types/node`](https://github.com/DefinitelyTyped/DefinitelyTyped) `26.6.6` — dev
+4. [`axios`](https://github.com/axios/axios) `1.21.1` — runtime
+5. [`jest`](https://github.com/jestjs/jest) `30.5.2` — dev
+6. [`systeminformation`](https://github.com/sebhildebrandt/systeminformation) `5.33.24` — runtime
+7. [`ts-jest`](https://github.com/kulshekhar/ts-jest) `29.4.15` — dev
+8. [`ts-node`](https://github.com/TypeStrong/ts-node) `10.9.2` — dev
 
 ## Apache-2.0
 
-1. [`@playwright/test`](https://playwright.dev) `1.63.0` — dev
-2. [`playwright`](https://playwright.dev) `1.63.0` — dev
-3. [`typescript`](https://www.typescriptlang.org/) `7.0.2` — dev
-
-## first-party (internal)
-
-1. [`@companionintelligence/video-kit`](https://github.com/companionintelligence/Local-Bench) `^0.1.0` — dev
-
+1. [`typescript`](https://github.com/microsoft/TypeScript) `7.0.2` — dev
 
 ---
 
