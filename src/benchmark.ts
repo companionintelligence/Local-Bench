@@ -7,8 +7,12 @@ import * as path from 'path';
 import { initDatabase, saveBenchmarkResults, saveBenchmarkAggregate, saveSystemSpecs } from './database';
 import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
 import { DRIVER_DESCRIPTORS, DriverType, Seat, TimingSource, UnknownDriverError, parseDriverType, resolveDriverFromEnv, wireOf } from './drivers';
+import { buildExport } from './exporter';
+import { EngineInfo, mergeEngineInfo, parseLlamaCppProps, parseOllamaPs, parseOllamaTags, parseOllamaVersion, parseOpenAiModels, parseVllmVersion } from './engineInfo';
 import { arrivalOffsetsMs, buildDepthPrompt, goodputFraction, interTokenLatencyMs, parseContextDepth, SloTargets } from './measure';
+import { PowerDeps, PowerReading, PowerSource, startPowerSampling } from './power';
 import { Summary, summarize } from './stats';
+import { Scenario, buildScenarioPrompt, parseScenario } from './workloads';
 
 // Configuration
 // The target base URL is read from env at call time; see getConfiguredBaseUrl().
@@ -362,6 +366,26 @@ export interface BenchmarkResult {
   repeatIndex?: number;
   /** 'burst' for a concurrent batch; 'constant' or 'poisson' for load profiles. */
   profile?: MeasurementProfile;
+  /** The fixed workload this row ran, e.g. "pp1024+tg16" (workloads.ts). Absent for free-prompt runs. */
+  scenario?: string;
+  /** The prompt length the workload asked for, in tokens. The engine's own count is promptTokens. */
+  requestedPromptTokens?: number;
+  /** The generation cap the workload asked for, in tokens. */
+  requestedGenTokens?: number;
+  /** Why generation stopped, as the engine reports it: 'stop' (end of sequence) or 'length' (the cap was reached). */
+  finishReason?: string;
+  /** What the engine reports about itself and the model: version, digest, quantization, context, slots. */
+  engine?: EngineInfo;
+  /** Bytes of the model held in GPU memory once the run finished (Ollama's /api/ps). */
+  vramBytes?: number;
+  /** Mean power draw over the run or batch, in watts. */
+  powerWatts?: number;
+  /** Which host counter the power reading came from. */
+  powerSource?: PowerSource;
+  /** Why there is no power reading, when there is none. */
+  powerNote?: string;
+  /** A free-text note the person attached to the run. */
+  note?: string;
 }
 
 export interface BenchmarkAggregate {
@@ -377,6 +401,14 @@ export interface BenchmarkAggregate {
   backendCounts: Record<string, number>;
   successes: number;
   failures: number;
+  /** Bytes of the model held in GPU memory once the batch finished (Ollama). */
+  vramBytes?: number;
+  /** Mean power draw over the batch, in watts. */
+  powerWatts?: number;
+  powerSource?: PowerSource;
+  powerNote?: string;
+  /** aggregateTokensPerSecond divided by powerWatts: tokens generated per joule. */
+  tokensPerJoule?: number;
 }
 
 export type MeasurementProfile = 'burst' | 'constant' | 'poisson';
@@ -405,6 +437,12 @@ export interface BenchmarkOptions {
   contextDepth?: number;
   /** Repetition index recorded on each row; set by benchmarkRepeated. */
   repeatIndex?: number;
+  /** A fixed workload (workloads.ts): a prompt of scenario.promptTokens and a cap of scenario.genTokens. Replaces contextDepth. */
+  scenario?: Scenario;
+  /** A free-text note recorded on every row. */
+  note?: string;
+  /** Sample power draw around each batch or load run. Off by default; the CLI and the server turn it on. An object gives the sampler's dependencies, for tests. */
+  measurePower?: boolean | PowerDeps;
 }
 
 interface OllamaModel {
@@ -421,6 +459,7 @@ interface OllamaGenerateResponse {
   prompt_eval_duration?: number;
   load_duration?: number;
   total_duration?: number;
+  done_reason?: string;
   [key: string]: any;
 }
 
@@ -431,7 +470,7 @@ interface OpenAIUsage {
 }
 
 interface OpenAIChatChunk {
-  choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string | null } }>;
+  choices?: Array<{ delta?: { content?: string | null }; message?: { content?: string | null }; finish_reason?: string | null }>;
   usage?: OpenAIUsage | null;
   [key: string]: any;
 }
@@ -464,6 +503,8 @@ interface RunOutcome {
   evalDurationNs?: number;
   /** The engine's own timings when it reports them (llama.cpp). */
   engineTimings?: EngineTimings;
+  /** Why generation stopped, as the engine reports it ('stop' or 'length'). */
+  finishReason?: string;
   headers: PoolHeaders;
 }
 
@@ -514,6 +555,8 @@ const llamaCppCache = new Map<string, boolean>();
 const llamaCppWindows = new Map<string, number>();
 /** Model and target pairs already requested in this process. The first request to one is cold. */
 const seenModelTargets = new Set<string>();
+/** What each target reports about a model (version, digest, context), read once per target and model. */
+const engineInfoCache = new Map<string, EngineInfo>();
 
 /** Forget probed transports (tests, or after the target URL changes at runtime). */
 export function resetTargetCache(): void {
@@ -521,6 +564,7 @@ export function resetTargetCache(): void {
   llamaCppCache.clear();
   llamaCppWindows.clear();
   seenModelTargets.clear();
+  engineInfoCache.clear();
 }
 
 /**
@@ -720,6 +764,7 @@ function ollamaTimings(data: OllamaGenerateResponse): Partial<RunOutcome> {
     out.evalDurationNs = data.eval_duration;
   }
   if (typeof data.eval_count === 'number') out.evalCount = data.eval_count;
+  if (typeof data.done_reason === 'string') out.finishReason = data.done_reason;
   return out;
 }
 
@@ -731,9 +776,21 @@ function ollamaTimings(data: OllamaGenerateResponse): Partial<RunOutcome> {
  * POST {base}/api/generate. Streaming parses NDJSON: the first line with a non-empty
  * `response` marks TTFT, the final `done: true` line carries Ollama's native timings.
  */
-async function runOllama(target: ResolvedTarget, model: string, prompt: string, stream: boolean, now: () => number, startedAt: number): Promise<RunOutcome> {
+async function runOllama(
+  target: ResolvedTarget,
+  model: string,
+  prompt: string,
+  stream: boolean,
+  now: () => number,
+  startedAt: number,
+  genTokens?: number
+): Promise<RunOutcome> {
   const url = `${target.url}/api/generate`;
-  const body = { model, prompt, stream };
+  const body: Record<string, unknown> = { model, prompt, stream };
+  // A workload's generation cap: Ollama stops at num_predict and reports done_reason 'length'.
+  if (genTokens !== undefined) {
+    body.options = { num_predict: genTokens };
+  }
 
   if (!stream) {
     const response = await axios.post<OllamaGenerateResponse>(url, body, { timeout: REQUEST_TIMEOUT_MS, headers: authHeaders() });
@@ -788,13 +845,27 @@ function rejectedRequestBody(error: unknown): boolean {
  * rejects that request (4xx), fall back to a plain non-streaming request and read
  * `usage` from its body; TTFT is then unknown.
  */
-async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, stream: boolean, now: () => number, startedAt: number): Promise<RunOutcome> {
+async function runOpenAI(
+  target: ResolvedTarget,
+  model: string,
+  prompt: string,
+  stream: boolean,
+  now: () => number,
+  startedAt: number,
+  genTokens?: number
+): Promise<RunOutcome> {
   const url = `${target.url}/v1/chat/completions`;
   const messages = [{ role: 'user', content: prompt }];
   const headers = { 'Content-Type': 'application/json', ...authHeaders() };
+  // A workload's generation cap. llama.cpp also gets ignore_eos, so its run reaches the cap
+  // instead of ending at the model's end-of-sequence token; finish_reason says which happened.
+  const cap: Record<string, unknown> = genTokens === undefined ? {} : {
+    max_tokens: genTokens,
+    ...(target.driver === 'llamacpp' ? { ignore_eos: true } : {})
+  };
 
   const nonStream = async (): Promise<RunOutcome> => {
-    const response = await axios.post<OpenAIChatChunk>(url, { model, messages, stream: false }, { timeout: REQUEST_TIMEOUT_MS, headers });
+    const response = await axios.post<OpenAIChatChunk>(url, { model, messages, stream: false, ...cap }, { timeout: REQUEST_TIMEOUT_MS, headers });
     const data = response.data || {};
     const usage = data.usage || {};
     return {
@@ -802,6 +873,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
       totalTokens: usage.completion_tokens || 0,
       promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
       engineTimings: llamaCppTimings(data),
+      finishReason: finishReasonOf(data.choices?.[0]),
       headers: readPoolHeaders(response.headers)
     };
   };
@@ -814,7 +886,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
   try {
     response = await axios.post(
       url,
-      { model, messages, stream: true, stream_options: { include_usage: true } },
+      { model, messages, stream: true, stream_options: { include_usage: true }, ...cap },
       { timeout: REQUEST_TIMEOUT_MS, responseType: 'stream', headers }
     );
   } catch (error) {
@@ -830,6 +902,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
   let usage: OpenAIUsage | undefined;
   let contentDeltas = 0;
   let engineTimings: EngineTimings | undefined;
+  let finishReason: string | undefined;
   for await (const line of readLines(response.data)) {
     const parsed = parseSseLine(line);
     if (!parsed) continue;
@@ -850,6 +923,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
       usage = chunk.usage;
     }
     engineTimings = llamaCppTimings(chunk) ?? engineTimings;
+    finishReason = finishReasonOf(chunk.choices?.[0]) ?? finishReason;
   }
 
   // Servers that ignore stream_options never send usage. Each content delta is one
@@ -862,8 +936,14 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
     promptTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
     ttftMs,
     engineTimings,
+    finishReason,
     headers: readPoolHeaders(response.headers)
   };
+}
+
+/** The finish_reason of one choice ('stop' or 'length'), when the engine sent one. */
+function finishReasonOf(choice: unknown): string | undefined {
+  return isRecord(choice) && typeof choice.finish_reason === 'string' ? choice.finish_reason : undefined;
 }
 
 function round(value: number, places: number): number {
@@ -900,6 +980,9 @@ interface SingleRunContext {
   contextDepth?: number;
   repeatIndex?: number;
   profile?: MeasurementProfile;
+  /** A fixed workload; when set, contextDepth is ignored. */
+  scenario?: Scenario;
+  note?: string;
 }
 
 /**
@@ -921,15 +1004,20 @@ function promptTokensPerSecond(outcome: RunOutcome): number | undefined {
 
 async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunContext): Promise<BenchmarkResult> {
   const { target, stream, now } = ctx;
-  const contextDepth = ctx.contextDepth ?? 0;
-  const requestPrompt = buildDepthPrompt(promptToUse, contextDepth, contextDepth > 0 ? randomUUID() : undefined);
+  const scenario = ctx.scenario;
+  const contextDepth = scenario ? 0 : (ctx.contextDepth ?? 0);
+  // A fresh nonce per request keeps an engine from reusing an earlier prefill of the same prompt.
+  const nonce = randomUUID();
+  const requestPrompt = scenario
+    ? buildScenarioPrompt(scenario, nonce)
+    : buildDepthPrompt(promptToUse, contextDepth, nonce);
   // The first request to a model on a target is cold. Recorded before any await, so the
   // first request of a concurrent batch is the one marked.
   const key = `${target.url}|${modelName}`;
   const firstRequest = !seenModelTargets.has(key);
   seenModelTargets.add(key);
 
-  const base: Pick<BenchmarkResult, 'model' | 'transport' | 'path' | 'targetUrl' | 'concurrency' | 'batchId' | 'prompt' | 'driver' | 'seat' | 'contextDepth' | 'contextWindow' | 'repeatIndex' | 'profile'> = {
+  const base: Pick<BenchmarkResult, 'model' | 'transport' | 'path' | 'targetUrl' | 'concurrency' | 'batchId' | 'prompt' | 'driver' | 'seat' | 'contextDepth' | 'contextWindow' | 'repeatIndex' | 'profile' | 'scenario' | 'requestedPromptTokens' | 'requestedGenTokens' | 'note'> = {
     model: modelName,
     transport: target.transport,
     path: target.path,
@@ -942,14 +1030,20 @@ async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunC
     contextDepth,
     contextWindow: target.driver === 'llamacpp' ? llamaCppWindows.get(target.url) : undefined,
     repeatIndex: ctx.repeatIndex,
-    profile: ctx.profile ?? 'burst'
+    profile: ctx.profile ?? 'burst',
+    scenario: scenario?.name,
+    requestedPromptTokens: scenario?.promptTokens,
+    requestedGenTokens: scenario?.genTokens,
+    note: ctx.note
   };
 
   try {
+    // Read before the clock starts, so the engine's own metadata is never charged to the run.
+    const engine = await engineInfoFor(target, modelName);
     const startTime = now();
     const outcome = target.transport === 'openai'
-      ? await runOpenAI(target, modelName, requestPrompt, stream, now, startTime)
-      : await runOllama(target, modelName, requestPrompt, stream, now, startTime);
+      ? await runOpenAI(target, modelName, requestPrompt, stream, now, startTime, scenario?.genTokens)
+      : await runOllama(target, modelName, requestPrompt, stream, now, startTime, scenario?.genTokens);
     const durationSeconds = (now() - startTime) / 1000;
     const tokensPerSecond = durationSeconds > 0 ? outcome.totalTokens / durationSeconds : 0;
     const decode = computeDecodeTokensPerSecond(
@@ -985,7 +1079,10 @@ async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunC
       decodeTokensPerSecond: decode === undefined ? undefined : round(decode, 2),
       promptTokensPerSecond: promptRate === undefined ? undefined : round(promptRate, 2),
       timingSource,
-      cold
+      cold,
+      finishReason: outcome.finishReason,
+      contextWindow: engine.contextWindow ?? base.contextWindow,
+      engine: Object.keys(engine).length > 0 ? engine : undefined
     };
   } catch (error) {
     const message = (error as Error).message;
@@ -1000,6 +1097,101 @@ async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunC
       error: message,
       response: ''
     };
+  }
+}
+
+/** GET a JSON endpoint, or undefined when it does not answer. Engine metadata is best effort. */
+async function getJson(url: string): Promise<unknown> {
+  try {
+    const response = await axios.get(url, { timeout: PROBE_TIMEOUT_MS, headers: authHeaders() });
+    return response.data;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the engine reports about itself and the model, from its own endpoints. */
+async function fetchEngineInfo(target: ResolvedTarget, model: string): Promise<EngineInfo> {
+  if (target.driver === 'ollama') {
+    const [tags, version] = await Promise.all([getJson(`${target.url}/api/tags`), getJson(`${target.url}/api/version`)]);
+    return mergeEngineInfo(parseOllamaTags(tags, model), { engineVersion: parseOllamaVersion(version) });
+  }
+  if (target.driver === 'llamacpp') {
+    const [props, models] = await Promise.all([getJson(`${target.url}/props`), getJson(`${target.url}/v1/models`)]);
+    return mergeEngineInfo(parseLlamaCppProps(props), parseOpenAiModels(models));
+  }
+  if (target.driver === 'vllm') {
+    return { engineVersion: parseVllmVersion(await getJson(`${target.url}/version`)) };
+  }
+  return {};
+}
+
+/** Engine metadata for a target and model, read once and then cached. Called before a run's clock starts. */
+async function engineInfoFor(target: ResolvedTarget, model: string): Promise<EngineInfo> {
+  const key = `${target.url}|${model}`;
+  const cached = engineInfoCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const info = await fetchEngineInfo(target, model);
+  engineInfoCache.set(key, info);
+  return info;
+}
+
+/** What Ollama reports about the loaded model now: the GPU bytes it holds and the context it runs with. */
+async function loadedModelState(target: ResolvedTarget, model: string): Promise<EngineInfo> {
+  if (target.driver !== 'ollama') {
+    return {};
+  }
+  return parseOllamaPs(await getJson(`${target.url}/api/ps`), model);
+}
+
+function applyPowerReading(into: { powerWatts?: number; powerSource?: PowerSource; powerNote?: string }, reading: PowerReading): void {
+  if (reading.watts !== undefined) {
+    into.powerWatts = round(reading.watts, 1);
+  }
+  if (reading.source !== undefined) {
+    into.powerSource = reading.source;
+  }
+  if (reading.note !== undefined) {
+    into.powerNote = reading.note;
+  }
+}
+
+/**
+ * Puts what was measured around a run onto its rows: the GPU memory the model holds, the
+ * context it runs with, and the power draw. A batch's own row gets the same, plus tokens per
+ * joule (its aggregate tokens per second over its watts).
+ */
+async function attachMeasurements(
+  rows: BenchmarkResult[],
+  target: ResolvedTarget,
+  model: string,
+  reading: PowerReading | undefined,
+  aggregate?: BenchmarkAggregate
+): Promise<void> {
+  const loaded = await loadedModelState(target, model);
+  for (const row of rows) {
+    if (loaded.vramBytes !== undefined) {
+      row.vramBytes = loaded.vramBytes;
+    }
+    if (row.contextWindow === undefined && loaded.contextWindow !== undefined) {
+      row.contextWindow = loaded.contextWindow;
+    }
+    if (reading) {
+      applyPowerReading(row, reading);
+    }
+  }
+  if (aggregate) {
+    if (loaded.vramBytes !== undefined) {
+      aggregate.vramBytes = loaded.vramBytes;
+    }
+    if (reading) {
+      applyPowerReading(aggregate, reading);
+    }
+    if (aggregate.powerWatts !== undefined && aggregate.powerWatts > 0) {
+      aggregate.tokensPerJoule = round(aggregate.aggregateTokensPerSecond / aggregate.powerWatts, 4);
+    }
   }
 }
 
@@ -1024,7 +1216,8 @@ export async function benchmarkModel(modelName: string, customPrompt?: string, o
   const promptToUse = customPrompt || DEFAULT_PROMPT;
   console.log(`\nBenchmarking ${modelName}...`);
   const target = await resolveTarget({ driver: options.driver });
-  return runSingle(modelName, promptToUse, {
+  const power = options.measurePower ? await startPowerSampling(typeof options.measurePower === 'object' ? options.measurePower : undefined) : undefined;
+  const result = await runSingle(modelName, promptToUse, {
     target,
     stream: options.stream !== false,
     now: options.now || Date.now,
@@ -1032,8 +1225,13 @@ export async function benchmarkModel(modelName: string, customPrompt?: string, o
     batchId: randomUUID(),
     contextDepth: options.contextDepth,
     repeatIndex: options.repeatIndex,
-    profile: 'burst'
+    profile: 'burst',
+    scenario: options.scenario,
+    note: options.note
   });
+  const reading = power ? await power.stop() : undefined;
+  await attachMeasurements([result], target, modelName, reading);
+  return result;
 }
 
 function median(values: number[]): number | undefined {
@@ -1107,14 +1305,22 @@ export async function benchmarkModelConcurrently(
     batchId: randomUUID(),
     contextDepth: options.contextDepth,
     repeatIndex: options.repeatIndex,
-    profile: 'burst'
+    profile: 'burst',
+    scenario: options.scenario,
+    note: options.note
   };
 
   console.log(`\nBenchmarking ${modelName} (${n} concurrent, ${ctx.stream ? 'streaming' : 'non-streaming'}, ${target.transport} → ${target.url})...`);
+  // Engine metadata and the power sampler are set up before the clock starts, so neither is charged to the batch.
+  await engineInfoFor(target, modelName);
+  const power = options.measurePower ? await startPowerSampling(typeof options.measurePower === 'object' ? options.measurePower : undefined) : undefined;
   const wallStart = now();
   const results = await Promise.all(Array.from({ length: n }, () => runSingle(modelName, promptToUse, ctx)));
   const wallSeconds = (now() - wallStart) / 1000;
-  return { results, aggregate: computeAggregate(results, wallSeconds) };
+  const reading = power ? await power.stop() : undefined;
+  const aggregate = computeAggregate(results, wallSeconds);
+  await attachMeasurements(results, target, modelName, reading, aggregate);
+  return { results, aggregate };
 }
 
 
@@ -1231,10 +1437,15 @@ export async function runLoadProfile(
     batchId: randomUUID(),
     contextDepth: options.contextDepth,
     profile: options.profile,
-    quiet: true
+    quiet: true,
+    scenario: options.scenario,
+    note: options.note
   };
 
   console.log(`\n${options.profile} load on ${modelName}: ${offsets.length} requests at ${options.rate}/s for ${options.durationSeconds}s (${target.driver} → ${target.url})...`);
+  // Engine metadata and the power sampler are set up before the schedule starts.
+  await engineInfoFor(target, modelName);
+  const power = options.measurePower ? await startPowerSampling(typeof options.measurePower === 'object' ? options.measurePower : undefined) : undefined;
   const start = now();
   const results = await Promise.all(offsets.map(async offset => {
     const wait = start + offset - now();
@@ -1244,6 +1455,8 @@ export async function runLoadProfile(
     return runSingle(modelName, promptToUse, ctx);
   }));
   const wallSeconds = (now() - start) / 1000;
+  const reading = power ? await power.stop() : undefined;
+  await attachMeasurements(results, target, modelName, reading);
 
   const ok = results.filter(row => row.success);
   const present = (values: Array<number | undefined>): number[] =>
@@ -1294,6 +1507,31 @@ export async function runSweep(
     }
   }
   return { runs, saturatedAt };
+}
+
+export interface ScalingLevel {
+  concurrency: number;
+  aggregate: BenchmarkAggregate;
+}
+
+/**
+ * The same workload at several concurrency levels, one burst batch each: the throughput and
+ * latency curve a serving decision needs. Levels run in the order given.
+ */
+export async function runScaling(
+  modelName: string,
+  customPrompt: string | undefined,
+  levels: number[],
+  options: Omit<BenchmarkOptions, 'concurrency'> = {}
+): Promise<{ levels: ScalingLevel[]; results: BenchmarkResult[] }> {
+  const curve: ScalingLevel[] = [];
+  const results: BenchmarkResult[] = [];
+  for (const level of levels) {
+    const batch = await benchmarkModelConcurrently(modelName, customPrompt, level, options);
+    results.push(...batch.results);
+    curve.push({ concurrency: batch.aggregate.concurrency, aggregate: batch.aggregate });
+  }
+  return { levels: curve, results };
 }
 
 /**
@@ -1347,20 +1585,46 @@ export async function saveResultsToDatabase(results: BenchmarkResult[], aggregat
 }
 
 
+/** Longest note a run can carry. */
+export const MAX_NOTE_LENGTH = 280;
+
+/** A trimmed note, or undefined when there is none. Throws when it is too long. */
+export function parseNote(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error('note must be text');
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > MAX_NOTE_LENGTH) {
+    throw new Error(`note must be ${MAX_NOTE_LENGTH} characters or fewer`);
+  }
+  return trimmed === '' ? undefined : trimmed;
+}
+
 export interface CliArgs {
   models: string[];
   concurrency: number;
   stream: boolean;
   driver?: DriverType;
-  /** Context depths in tokens. One set of runs per depth. */
+  /** Context depths in tokens. One set of runs per depth. Not used when scenarios are given. */
   depths: number[];
+  /** Fixed workloads (workloads.ts). When given, they replace the depths. */
+  scenarios: Scenario[];
   repetitions: number;
-  profile: MeasurementProfile | 'sweep';
+  profile: MeasurementProfile | 'sweep' | 'scaling';
   rate?: number;
   rates?: number[];
+  /** Concurrency levels for the scaling profile. */
+  levels: number[];
   durationSeconds: number;
   seed?: number;
   slo: SloTargets;
+  /** A free-text note attached to every row of this run. */
+  note?: string;
+  /** Where to write the shareable JSON export, when asked. */
+  exportPath?: string;
 }
 
 function positiveNumber(value: string, flag: string): number {
@@ -1379,6 +1643,17 @@ function numberList(value: string, flag: string): string[] {
   return parts;
 }
 
+/** Concurrency levels: comma-separated whole numbers from 1 to MAX_CONCURRENCY. */
+function concurrencyList(value: string, flag: string): number[] {
+  return numberList(value, flag).map(part => {
+    const n = Number(part);
+    if (!Number.isInteger(n) || n < 1 || n > MAX_CONCURRENCY) {
+      throw new Error(`${flag} values must be whole numbers from 1 to ${MAX_CONCURRENCY}, got "${part}"`);
+    }
+    return n;
+  });
+}
+
 /**
  * Command-line options. `--concurrency=N`, `--no-stream` and the measurement flags are
  * recognised; anything else is a model name. Invalid values throw, so a typo fails the
@@ -1390,8 +1665,10 @@ export function parseCliArgs(argv: string[]): CliArgs {
     concurrency: 1,
     stream: true,
     depths: [0],
+    scenarios: [],
     repetitions: 1,
     profile: 'burst',
+    levels: [1, 2, 4, 8],
     durationSeconds: 30,
     slo: {}
   };
@@ -1415,6 +1692,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
         }
         return depth;
       });
+    } else if (arg.startsWith('--scenario=')) {
+      args.scenarios = numberList(value, '--scenario').map(part => parseScenario(part));
     } else if (arg.startsWith('--repetitions=')) {
       const n = Number(value);
       if (!Number.isInteger(n) || n < 1 || n > MAX_REPETITIONS) {
@@ -1422,10 +1701,12 @@ export function parseCliArgs(argv: string[]): CliArgs {
       }
       args.repetitions = n;
     } else if (arg.startsWith('--profile=')) {
-      if (!['burst', 'constant', 'poisson', 'sweep'].includes(value)) {
-        throw new Error(`--profile must be burst, constant, poisson or sweep, got "${value}"`);
+      if (!['burst', 'constant', 'poisson', 'sweep', 'scaling'].includes(value)) {
+        throw new Error(`--profile must be burst, constant, poisson, sweep or scaling, got "${value}"`);
       }
       args.profile = value as CliArgs['profile'];
+    } else if (arg.startsWith('--levels=')) {
+      args.levels = concurrencyList(value, '--levels');
     } else if (arg.startsWith('--rate=')) {
       args.rate = positiveNumber(value, '--rate');
     } else if (arg.startsWith('--rates=')) {
@@ -1442,6 +1723,13 @@ export function parseCliArgs(argv: string[]): CliArgs {
       args.slo.ttftMs = positiveNumber(value, '--ttft-slo');
     } else if (arg.startsWith('--itl-slo=')) {
       args.slo.itlMs = positiveNumber(value, '--itl-slo');
+    } else if (arg.startsWith('--note=')) {
+      args.note = parseNote(value);
+    } else if (arg.startsWith('--export=')) {
+      if (value.trim() === '') {
+        throw new Error('--export needs a file path');
+      }
+      args.exportPath = value.trim();
     } else if (arg.startsWith('--')) {
       console.error(`Ignoring unknown flag ${arg}`);
     } else {
@@ -1453,6 +1741,9 @@ export function parseCliArgs(argv: string[]): CliArgs {
   }
   if (args.profile === 'sweep' && (args.rates === undefined || args.rates.length === 0)) {
     throw new Error('--profile=sweep needs --rates=<a,b,c>');
+  }
+  if (args.scenarios.length > 0 && args.depths.some(depth => depth > 0)) {
+    throw new Error('--scenario fixes the prompt length, so it cannot be combined with --depth');
   }
   return args;
 }
@@ -1482,6 +1773,9 @@ function formatRow(r: BenchmarkResult): string {
     `${r.tokensPerSecond} tok/s wall`,
     r.decodeTokensPerSecond !== undefined ? `${r.decodeTokensPerSecond} tok/s decode` : undefined,
     r.ttftMs !== undefined ? `TTFT ${r.ttftMs}ms` : undefined,
+    r.requestedGenTokens !== undefined && r.finishReason !== undefined ? `finish ${r.finishReason} at ${r.totalTokens} of ${r.requestedGenTokens} tokens` : undefined,
+    r.vramBytes !== undefined ? `VRAM ${round(r.vramBytes / 1e9, 2)} GB` : undefined,
+    r.powerWatts !== undefined ? `${r.powerWatts} W (${r.powerSource})` : undefined,
     r.servedBy ? `served by ${r.servedBy}` : undefined,
     r.backend ? `backend ${r.backend}` : undefined
   ].filter(Boolean);
@@ -1496,6 +1790,9 @@ function formatAggregate(a: BenchmarkAggregate): string {
     `${a.successes}/${a.concurrency} ok`,
     a.medianTtftMs !== undefined ? `median TTFT ${a.medianTtftMs}ms` : undefined,
     a.medianDecodeTokensPerSecond !== undefined ? `median decode ${a.medianDecodeTokensPerSecond} tok/s` : undefined,
+    a.powerWatts !== undefined ? `${a.powerWatts} W` : undefined,
+    a.tokensPerJoule !== undefined ? `${a.tokensPerJoule} tok/J` : undefined,
+    a.vramBytes !== undefined ? `VRAM ${round(a.vramBytes / 1e9, 2)} GB` : undefined,
     served ? `served by ${served}` : undefined,
     backends ? `backends ${backends}` : undefined
   ].filter(Boolean);
@@ -1531,19 +1828,34 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // A fixed workload replaces the context depths: each one is a prompt length and a generation cap.
+  const workloads: Array<{ scenario?: Scenario; contextDepth: number }> = args.scenarios.length > 0
+    ? args.scenarios.map(scenario => ({ scenario, contextDepth: 0 }))
+    : args.depths.map(contextDepth => ({ contextDepth }));
+  const shape = args.scenarios.length > 0
+    ? `scenarios ${args.scenarios.map(scenario => scenario.name).join(', ')}`
+    : `depths ${args.depths.join(', ')}`;
+
   console.log(`\nModels to benchmark: ${modelsToTest.join(', ')}`);
-  console.log(`Profile: ${args.profile}, concurrency ${args.concurrency}, depths ${args.depths.join(', ')}, repetitions ${args.repetitions}, streaming: ${args.stream ? 'on' : 'off'}`);
+  console.log(`Profile: ${args.profile}, concurrency ${args.concurrency}, ${shape}, repetitions ${args.repetitions}, streaming: ${args.stream ? 'on' : 'off'}`);
+  if (args.note) {
+    console.log(`Note: ${args.note}`);
+  }
 
   const results: BenchmarkResult[] = [];
   const aggregates: BenchmarkAggregate[] = [];
   for (const model of modelsToTest) {
-    if (args.profile === 'burst') {
-      for (const depth of args.depths) {
-        const run = await benchmarkRepeated(model, undefined, args.repetitions, args.concurrency, {
-          stream: args.stream,
-          driver: args.driver,
-          contextDepth: depth
-        });
+    for (const workload of workloads) {
+      const options = {
+        stream: args.stream,
+        driver: args.driver,
+        scenario: workload.scenario,
+        contextDepth: workload.contextDepth,
+        note: args.note,
+        measurePower: true
+      };
+      if (args.profile === 'burst') {
+        const run = await benchmarkRepeated(model, undefined, args.repetitions, args.concurrency, options);
         results.push(...run.results);
         aggregates.push(...run.aggregates);
         for (const row of run.results) {
@@ -1557,17 +1869,20 @@ async function main(): Promise<void> {
         if (args.repetitions > 1) {
           console.log(`  = ${formatRepeats(run.summary.tokensPerSecond, args.repetitions)}`);
         }
-      }
-    } else if (args.profile === 'sweep') {
-      for (const depth of args.depths) {
+      } else if (args.profile === 'scaling') {
+        const scaling = await runScaling(model, undefined, args.levels, options);
+        results.push(...scaling.results);
+        for (const level of scaling.levels) {
+          aggregates.push(level.aggregate);
+          console.log(`  = ${formatAggregate(level.aggregate)}`);
+        }
+      } else if (args.profile === 'sweep') {
         const sweep = await runSweep(model, undefined, {
+          ...options,
           profile: 'constant',
           durationSeconds: args.durationSeconds,
           seed: args.seed,
           slo: args.slo,
-          stream: args.stream,
-          driver: args.driver,
-          contextDepth: depth,
           rates: args.rates ?? []
         });
         for (const run of sweep.runs) {
@@ -1577,18 +1892,14 @@ async function main(): Promise<void> {
         if (sweep.saturatedAt !== undefined) {
           console.log(`  saturated at ${sweep.saturatedAt} requests/second`);
         }
-      }
-    } else {
-      for (const depth of args.depths) {
+      } else {
         const run = await runLoadProfile(model, undefined, {
+          ...options,
           profile: args.profile,
           rate: args.rate as number,
           durationSeconds: args.durationSeconds,
           seed: args.seed,
-          slo: args.slo,
-          stream: args.stream,
-          driver: args.driver,
-          contextDepth: depth
+          slo: args.slo
         });
         results.push(...run.results);
         console.log(`  ${formatLoadRun(run)}`);
@@ -1600,6 +1911,13 @@ async function main(): Promise<void> {
   saveResultsToCSV(results);
   await saveResultsToDatabase(results, aggregates);
 
+  if (args.exportPath) {
+    const hardware = await getSystemSpecs();
+    const exported = buildExport({ results, aggregates, hardware, generatedAt: new Date() });
+    fs.writeFileSync(args.exportPath, `${JSON.stringify(exported, null, 2)}\n`, 'utf8');
+    console.log(`\nExport written to ${args.exportPath} (no prompts, responses, hostnames or addresses)`);
+  }
+
   // Summary
   console.log('\n=== Benchmark Summary ===');
   const ranked = aggregates.filter(a => a.successes > 0).sort((a, b) => b.aggregateTokensPerSecond - a.aggregateTokensPerSecond);
@@ -1608,6 +1926,11 @@ async function main(): Promise<void> {
     ranked.forEach((a, i) => {
       console.log(`  ${i + 1}. ${a.model}: ${formatAggregate(a)}`);
     });
+  }
+
+  const powerNote = results.find(r => r.powerNote !== undefined)?.powerNote;
+  if (powerNote !== undefined) {
+    console.log(`\nPower not recorded: ${powerNote}`);
   }
 
   const failedResults = results.filter(r => !r.success);

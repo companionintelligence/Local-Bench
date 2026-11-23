@@ -14,6 +14,7 @@ import {
   resolveTarget,
   saveResultsToCSV,
   saveResultsToDatabase,
+  parseNote,
   TEST_PROMPTS,
   INTELLIGENCE_INDEX_SOURCE,
   INTELLIGENCE_INDEX_URL,
@@ -21,8 +22,10 @@ import {
 } from './benchmark';
 import axios from 'axios';
 import { describeHttpDrivers, parseDriverType, DriverType } from './drivers';
-import { parseContextDepth } from './measure';
+import { MAX_CONTEXT_DEPTH, parseContextDepth } from './measure';
 import { benchmarkRepeated, MAX_REPETITIONS } from './benchmark';
+import { buildExport } from './exporter';
+import { MAX_GEN_TOKENS, SCENARIOS, Scenario, parseScenario } from './workloads';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const PROBE_TIMEOUT_MS = 10000;
@@ -48,6 +51,10 @@ interface BenchmarkRequest {
   contextDepth?: number;
   /** Repetitions per model, 1 to 50. */
   repetitions?: number;
+  /** A fixed workload such as "pp1024+tg16" (see /api/scenarios). Replaces the prompt and contextDepth. */
+  scenario?: string;
+  /** A free-text note, up to 280 characters, stored with every row of the run. */
+  note?: string;
 }
 
 const mimeTypes: MimeTypes = {
@@ -285,6 +292,47 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
     return true;
   }
 
+  // API endpoint: the fixed workloads a run can use, and the limits on any ppN+tgM
+  if (url === '/api/scenarios') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(JSON.stringify({
+      scenarios: SCENARIOS,
+      pattern: 'ppN+tgM',
+      maxPromptTokens: MAX_CONTEXT_DEPTH,
+      maxGenTokens: MAX_GEN_TOKENS
+    }));
+    return true;
+  }
+
+  // API endpoint: the stored results as a shareable JSON file. No prompts, responses,
+  // hostnames or addresses; hardware is the most recently recorded machine.
+  if (url === '/api/export' || url.startsWith('/api/export?')) {
+    try {
+      const requested = Number(new URL(url, 'http://localhost').searchParams.get('limit'));
+      const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, 10000) : 1000;
+      const exported = buildExport({
+        results: getAllBenchmarkResults().slice(0, limit),
+        aggregates: getRecentAggregates(limit),
+        hardware: getLatestSystemSpecs() ?? undefined,
+        generatedAt: new Date()
+      });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="local-bench-export.json"',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(exported, null, 2));
+      return true;
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Failed to build export: ' + (error as Error).message }));
+      return true;
+    }
+  }
+
   // API endpoint: Get available models from the target (Ollama, pool proxy, or
   // an OpenAI-compatible engine); falls back to the curated catalog.
   if (url === '/api/models' || url.startsWith('/api/models?')) {
@@ -376,6 +424,36 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
             return;
           }
 
+          let scenario: Scenario | undefined;
+          if (data.scenario !== undefined && data.scenario !== null && data.scenario !== '') {
+            try {
+              scenario = parseScenario(String(data.scenario));
+            } catch (error) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: (error as Error).message }));
+              return;
+            }
+            if (contextDepth > 0) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'A scenario fixes the prompt length, so contextDepth must be 0 when a scenario is given' }));
+              return;
+            }
+            if (data.customPrompt || data.promptId) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'A scenario has its own prompt, so leave customPrompt and promptId out' }));
+              return;
+            }
+          }
+
+          let note: string | undefined;
+          try {
+            note = parseNote(data.note);
+          } catch (error) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: (error as Error).message }));
+            return;
+          }
+
           // Determine prompt to use
           let promptToUse: string | undefined;
           if (data.customPrompt && data.customPrompt.trim()) {
@@ -395,7 +473,7 @@ async function handleApiRequest(req: http.IncomingMessage, res: http.ServerRespo
           const results: BenchmarkResult[] = [];
           const aggregates: BenchmarkAggregate[] = [];
           for (const model of models) {
-            const run = await benchmarkRepeated(model, promptToUse, repetitions, concurrency, { stream, driver, contextDepth });
+            const run = await benchmarkRepeated(model, promptToUse, repetitions, concurrency, { stream, driver, contextDepth, scenario, note, measurePower: true });
             results.push(...run.results);
             aggregates.push(...run.aggregates);
           }

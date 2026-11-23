@@ -108,7 +108,7 @@ npm start             # http://localhost:3000
 PORT=8080 npm start   # custom port
 ```
 
-In the dashboard you can select installed models, choose and edit a prompt, run a benchmark, watch the charts and results update, compare two responses, and export a PDF.
+In the dashboard you can select installed models, choose and edit a prompt, pick a fixed workload (which replaces the prompt and depth), add a note to the run, run a benchmark, watch the charts and results update, compare two responses, export a PDF, and download a JSON export of the stored results.
 
 ## Running from the command line
 
@@ -127,6 +127,15 @@ node dist/benchmark.js gemma3:4b --concurrency=4
 
 # one request at a time, no streaming (no TTFT; matches the old numbers exactly)
 node dist/benchmark.js gemma3:4b --no-stream
+
+# a fixed workload: a 1,024-token prompt and at most 16 generated tokens (see Fixed workloads)
+node dist/benchmark.js gemma3:4b --scenario=pp1024+tg16
+
+# the same work at four concurrency levels: the throughput and latency curve
+node dist/benchmark.js gemma3:4b --scenario=pp1024+tg16 --profile=scaling --levels=1,2,4,8
+
+# a note on the run, and a shareable JSON export of it
+node dist/benchmark.js gemma3:4b --scenario=pp1024+tg16 --note="laptop on battery" --export=run.json
 ```
 
 ## Benchmarking a CI-Hub pool
@@ -179,9 +188,31 @@ The first seven send requests to an endpoint, so their rows carry seat `app`: th
 - **Repetitions** (`--repetitions=<n>`, 1 to 50): repeats the batch and reports the median, mean, standard deviation and a 95% t-interval across repetitions. Each row carries its `repeatIndex`.
 - **Load profiles** (`--profile=constant` or `poisson --rate=<requests per second> --duration=<seconds>`): sends single requests on a schedule, evenly spaced or Poisson. `--seed=<n>` makes a Poisson schedule repeatable. The summary gives TTFT and inter-token latency at p50, p90 and p99, and **goodput**: the share of requests that met `--ttft-slo=<ms>` and `--itl-slo=<ms>`.
 - **Sweep** (`--profile=sweep --rates=1,2,4`): steps through the rates with constant arrivals and stops at saturation: the first rate where more than 5% of requests fail, or where p90 TTFT breaks the TTFT target.
+- **Scaling** (`--profile=scaling --levels=1,2,4,8`): the same workload at several concurrency levels, one batch each. Each level's aggregate is its own row, so the curve of throughput and median TTFT against concurrency is in the results.
 - **Cold and warm**: the first request to a model on a target is marked `cold`, and so is any request that loaded the model (Ollama's `load_duration`).
 
-Load profiles and sweeps run from the CLI. The dashboard runs batches, depths and repetitions.
+Load profiles, sweeps and scaling run from the CLI. The dashboard runs batches, workloads, depths and repetitions.
+
+### Fixed workloads
+
+A workload fixes the prompt length and the generation cap, so the same work runs on every machine. `--scenario=<name>` (or the Workload selector in the dashboard) takes one of the nine budgets below, or any `ppN+tgM` with N up to 32768 and M up to 8192. Several in one run: `--scenario=pp64+tg1024,pp1024+tg16`.
+
+| Name | Prompt tokens | Generated, at most |
+|---|---|---|
+| `pp16+tg1536` | 16 | 1,536 |
+| `pp64+tg1024` | 64 | 1,024 |
+| `pp384+tg1152` | 384 | 1,152 |
+| `pp1024+tg16` | 1,024 | 16 |
+| `pp1024+tg1024` | 1,024 | 1,024 |
+| `pp1280+tg3072` | 1,280 | 3,072 |
+| `pp2048+tg256` | 2,048 | 256 |
+| `pp2048+tg768` | 2,048 | 768 |
+| `pp4096+tg256` | 4,096 | 256 |
+
+- The budgets and their names are LocalScore's published test table (github.com/cjpais/LocalScore, Apache-2.0), so results can be lined up against it. The prompt text is this tool's own.
+- The prompt is filler of about N tokens, then the question, then a per-request nonce, so the engine processes more than N. Its own count (`promptTokens`) is the length it actually processed: on llama.cpp, pp1024 came to 1,091 tokens. Compare on `promptTokens`, not on N.
+- Generation stops at the cap. Each row records `finishReason`: `length` when the cap was reached, `stop` when the model ended first. Rows are comparable on speed when they generated the same number of tokens, so filter on `length` when comparing engines. llama.cpp is also sent `ignore_eos`, so its runs reach the cap; Ollama has no equivalent option, so its runs can end early.
+- A workload sets its own prompt and length, so it cannot be combined with `--depth`, a custom prompt, or a prompt ID.
 
 ### Concurrency
 
@@ -199,6 +230,11 @@ Concurrency is the interesting knob for a pool. A single request measures one no
 - **Load / prompt eval / eval** (`loadMs`, `promptEvalMs`, `evalMs`) are Ollama's own timing breakdown, in milliseconds. Only present on the Ollama transport.
 - **Prompt speed** (`promptTokensPerSecond`) is the engine's own figure when it reports one (Ollama, llama.cpp). Otherwise it is prompt tokens over TTFT, which includes the network round trip.
 - **Driver, seat and timing source** (`driver`, `seat`, `timingSource`) say what was measured and by whose clock: `timingSource` is `ollama`, `llamacpp`, or `client` (this tool's clock).
+- **Finish reason** (`finishReason`) is how generation ended, as the engine reports it: `length` (the cap was reached) or `stop` (end of sequence).
+- **Engine metadata** (`engine`) is what the engine reports about itself and the model: its version, the model's digest, family, format, parameter count and quantization, the runtime context window, and llama.cpp's slot count. It is read from the engine's own endpoints before the clock starts, so it is never charged to a run. Engines that do not report a field leave it out.
+- **GPU memory** (`vramBytes`) is the bytes of the model held in GPU memory once the run finished. Ollama reports it through `/api/ps`; other engines leave it blank.
+- **Power** (`powerWatts`, `powerSource`, `powerNote`) is the mean draw in watts over the batch or load run. The sources are `nvidia-smi` (NVIDIA, no privileges needed) and `powermetrics` (Apple Silicon, which needs root: the tool asks with `sudo -n`, so it never prompts for a password and records nothing unless you have already allowed it). When there is no source, `powerNote` says why. A batch also gets **tokens per joule** (`tokensPerJoule`): its aggregate tokens per second divided by its watts.
+- **Note** (`note`) is free text of up to 280 characters, stored with every row of the run.
 
 The CLI prints one line per request and then an `=` line with the batch aggregate:
 
@@ -218,11 +254,19 @@ The dashboard's server exposes these for scripts:
 
 - `GET /api/target` → `{ url, transport, driver, seat, path, pool }`; `path` is `pool` when the URL contains `/inference/pool`, and `pool.servedByHeaderSeen` says whether the pool has answered this process yet.
 - `GET /api/drivers` → the HTTP engine drivers, with each one's capabilities and the reason for any it does not provide.
-- `POST /api/run-benchmark` with `{ models, promptId?, customPrompt?, concurrency?, stream?, driver?, contextDepth?, repetitions? }` → `{ success, results, aggregates }`. An invalid value is a 400 with the reason.
+- `POST /api/run-benchmark` with `{ models, promptId?, customPrompt?, concurrency?, stream?, driver?, contextDepth?, repetitions?, scenario?, note? }` → `{ success, results, aggregates }`. An invalid value is a 400 with the reason. A `scenario` replaces the prompt and must come with `contextDepth` 0 and no `customPrompt` or `promptId`.
+- `GET /api/scenarios` → the fixed workloads, and the limits on any `ppN+tgM`.
+- `GET /api/export?limit=N` → the stored results as a JSON file (see Sharing results).
 - `GET /api/results` → every stored row, new fields `null` on rows written before them.
 - `GET /api/aggregates?limit=N` → recent batch aggregates.
 
 This tool measures throughput over time from the app's side. Conformance of the pool's wire protocol is the job of the fleet harness in CI-Engineering; the two are meant to be run together, not instead of each other.
+
+### Sharing results
+
+`--export=<file>` (CLI) or the **Download JSON export** button (`GET /api/export`) writes the measurements and their run settings as JSON, schema `local-bench-export/1`: the runs, the batch aggregates, the hardware, the engine metadata and the notes. The file is written where you ask. Nothing is uploaded.
+
+It leaves out the prompts, the model responses, host names, target URLs, request IDs, served-by names and error text, since any of these can identify a person or a network. The hardware block carries the CPU, memory, operating system and GPU model; the machine's name is not included.
 
 ## AMD Strix Halo benchmarks
 
@@ -280,7 +324,7 @@ npm run lint          # strict compiler checks on source files
 npm run smoke -- gemma3:1b   # one live request to the configured engine (needs it running)
 ```
 
-The contract tests run the real benchmark code over real HTTP against an in-process engine stub, replaying a captured Ollama stream. A conformance matrix (`src/conformance.ts`) records, per driver and dimension, which test covers it or why it is skipped, and whether the driver has run against a live engine.
+The contract tests run the real benchmark code over real HTTP against an in-process engine stub, replaying a captured Ollama stream. A conformance matrix (`src/conformance.ts`) records, per driver and dimension (including the fixed-workload cap, engine metadata and loaded memory), which test covers it or why it is skipped, and whether the driver has run against a live engine.
 
 ## Running under Deno
 

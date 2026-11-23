@@ -959,4 +959,80 @@ describe('Database Module', () => {
       expect(read.backendCounts).toEqual({ ollama: 3, vllm: 1 });
     });
   });
+  describe('workload, engine, memory and power fields', () => {
+    it('round-trips the workload, engine, memory, power and note fields', () => {
+      initDatabase();
+      saveBenchmarkResults([
+        fullPoolResult({
+          scenario: 'pp16+tg8',
+          requestedPromptTokens: 16,
+          requestedGenTokens: 8,
+          finishReason: 'length',
+          engine: { engineVersion: '0.33.3', modelDigest: 'sha256:abc', quantization: 'Q4_K_M', contextWindow: 4096 },
+          vramBytes: 1400000000,
+          powerWatts: 42.5,
+          powerSource: 'nvidia-smi',
+          note: 'on battery'
+        })
+      ]);
+
+      const [read] = getAllBenchmarkResults();
+      expect(read).toMatchObject({
+        scenario: 'pp16+tg8',
+        requestedPromptTokens: 16,
+        requestedGenTokens: 8,
+        finishReason: 'length',
+        vramBytes: 1400000000,
+        powerWatts: 42.5,
+        powerSource: 'nvidia-smi',
+        note: 'on battery'
+      });
+      expect(read.engine).toEqual({ engineVersion: '0.33.3', modelDigest: 'sha256:abc', quantization: 'Q4_K_M', contextWindow: 4096 });
+    });
+
+    it('reads the same workload and engine fields through the specs query', () => {
+      initDatabase();
+      saveBenchmarkResults([
+        fullPoolResult({
+          scenario: 'pp16+tg8',
+          finishReason: 'stop',
+          engine: { engineVersion: '0.33.3' },
+          note: 'desk fan on'
+        })
+      ]);
+
+      const [joined] = getBenchmarkResultsWithSpecs();
+      expect(joined).toMatchObject({ scenario: 'pp16+tg8', finishReason: 'stop', note: 'desk fan on' });
+      expect(joined.engine).toEqual({ engineVersion: '0.33.3' });
+    });
+
+    it('round-trips the batch memory, power and tokens per joule', () => {
+      initDatabase();
+      saveBenchmarkAggregate({
+        batchId: 'power-batch-1',
+        model: 'gemma3:1b',
+        concurrency: 2,
+        wallSeconds: 1.5,
+        aggregateTokensPerSecond: 60,
+        servedByCounts: {},
+        backendCounts: {},
+        successes: 2,
+        failures: 0,
+        vramBytes: 1400000000,
+        powerWatts: 30,
+        powerSource: 'powermetrics',
+        tokensPerJoule: 2
+      });
+
+      const [read] = getRecentAggregates();
+      expect(read).toMatchObject({
+        batchId: 'power-batch-1',
+        vramBytes: 1400000000,
+        powerWatts: 30,
+        powerSource: 'powermetrics',
+        tokensPerJoule: 2
+      });
+    });
+  });
+
 });
