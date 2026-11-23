@@ -21,6 +21,7 @@ const mockedDatabase = database as jest.Mocked<typeof database>;
 jest.mock('./benchmark', () => ({
   ...jest.requireActual('./benchmark'),
   benchmarkModelConcurrently: jest.fn(),
+  benchmarkRepeated: jest.fn(),
   saveResultsToCSV: jest.fn(),
   saveResultsToDatabase: jest.fn()
 }));
@@ -802,6 +803,8 @@ describe('Server Module', () => {
         expect(body).toEqual({
           url: 'http://localhost:11434',
           transport: 'ollama',
+          driver: 'ollama',
+          seat: 'app',
           path: 'direct',
           pool: null
         });
@@ -838,7 +841,7 @@ describe('Server Module', () => {
       process.env.CI_LLM_BASE_URL = 'http://strix:8000/v1';
       mockedAxios.get.mockRejectedValue(new Error('404'));
       getTarget(done, (body) => {
-        expect(body).toEqual({ url: 'http://strix:8000', transport: 'openai', path: 'direct', pool: null });
+        expect(body).toEqual({ url: 'http://strix:8000', transport: 'openai', driver: 'openai', seat: 'app', path: 'direct', pool: null });
       });
     });
 
@@ -1014,15 +1017,16 @@ describe('Server Module', () => {
     it('runs a single-model batch with concurrency 1 and streaming by default', (done) => {
       const rows = [makeResult()];
       const aggregate = makeAggregate();
-      mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({ results: rows, aggregate });
+      mockedBenchmark.benchmarkRepeated.mockResolvedValue({ results: rows, aggregates: [aggregate], summary: {} } as any);
 
       runBenchmark({ models: ['llama2'], promptId: TEST_PROMPT_ID }, done, (status, headers, body) => {
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledTimes(1);
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith(
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenCalledTimes(1);
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenCalledWith(
           'llama2',
           expect.any(String),
           1,
-          { stream: true }
+          1,
+          { stream: true, contextDepth: 0 }
         );
         expect(mockedBenchmark.saveResultsToCSV).toHaveBeenCalledWith(rows);
         // Rows and their aggregate go to the database in one call so they share a specs row.
@@ -1034,15 +1038,16 @@ describe('Server Module', () => {
     });
 
     it('passes concurrency and stream through and returns one aggregate per model', (done) => {
-      mockedBenchmark.benchmarkModelConcurrently.mockImplementation(async (model, _prompt, concurrency) => ({
+      mockedBenchmark.benchmarkRepeated.mockImplementation((async (model: string, _prompt: string, _repetitions: number, concurrency: number) => ({
         results: Array.from({ length: concurrency }, (_, i) => makeResult({ model, batchId: `${model}-batch`, concurrency, servedBy: i % 2 ? 'peer-a' : 'local' })),
-        aggregate: makeAggregate({ model, batchId: `${model}-batch`, concurrency })
-      }));
+        aggregates: [makeAggregate({ model, batchId: `${model}-batch`, concurrency })],
+        summary: {}
+      })) as any);
 
       runBenchmark({ models: ['llama2', 'qwen3:8b'], customPrompt: '  hello  ', concurrency: 4, stream: false }, done, (status, _headers, body) => {
         expect(status).toBe(200);
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(1, 'llama2', 'hello', 4, { stream: false });
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', 4, { stream: false });
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenNthCalledWith(1, 'llama2', 'hello', 1, 4, { stream: false, contextDepth: 0 });
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenNthCalledWith(2, 'qwen3:8b', 'hello', 1, 4, { stream: false, contextDepth: 0 });
         expect(body.results).toHaveLength(8);
         expect(body.aggregates.map((a: BenchmarkAggregate) => a.model)).toEqual(['llama2', 'qwen3:8b']);
         // Everything went to the database in one call, so rows and aggregates share specs.
@@ -1054,10 +1059,11 @@ describe('Server Module', () => {
     });
 
     it('flips /api/target pool.servedByHeaderSeen once a row carries servedBy', (done) => {
-      mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({
+      mockedBenchmark.benchmarkRepeated.mockResolvedValue({
         results: [makeResult({ servedBy: 'peer-a', backend: 'ollama' })],
-        aggregate: makeAggregate({ servedByCounts: { 'peer-a': 1 } })
-      });
+        aggregates: [makeAggregate({ servedByCounts: { 'peer-a': 1 } })],
+        summary: {}
+      } as any);
       mockedAxios.get.mockResolvedValue({ data: { models: [] }, headers: {} });
 
       runBenchmark({ models: ['llama2'] }, () => {
@@ -1080,15 +1086,15 @@ describe('Server Module', () => {
       runBenchmark({ models: ['llama2'], concurrency }, done as () => void, (status, _headers, body) => {
         expect(status).toBe(400);
         expect(body.error).toMatch(/Invalid concurrency/);
-        expect(mockedBenchmark.benchmarkModelConcurrently).not.toHaveBeenCalled();
+        expect(mockedBenchmark.benchmarkRepeated).not.toHaveBeenCalled();
       });
     });
 
     it('accepts concurrency at the 16 ceiling', (done) => {
-      mockedBenchmark.benchmarkModelConcurrently.mockResolvedValue({ results: [], aggregate: makeAggregate({ concurrency: 16 }) });
+      mockedBenchmark.benchmarkRepeated.mockResolvedValue({ results: [], aggregates: [makeAggregate({ concurrency: 16 })], summary: {} } as any);
       runBenchmark({ models: ['llama2'], concurrency: 16 }, done, (status) => {
         expect(status).toBe(200);
-        expect(mockedBenchmark.benchmarkModelConcurrently).toHaveBeenCalledWith('llama2', undefined, 16, { stream: true });
+        expect(mockedBenchmark.benchmarkRepeated).toHaveBeenCalledWith('llama2', undefined, 1, 16, { stream: true, contextDepth: 0 });
       });
     });
 
@@ -1107,7 +1113,7 @@ describe('Server Module', () => {
     });
 
     it('returns 500 when the runner throws', (done) => {
-      mockedBenchmark.benchmarkModelConcurrently.mockRejectedValue(new Error('pool 502: no candidate'));
+      mockedBenchmark.benchmarkRepeated.mockRejectedValue(new Error('pool 502: no candidate'));
       runBenchmark({ models: ['llama2'] }, done, (status, headers, body) => {
         expect(status).toBe(500);
         expect(headers).toEqual({ 'Content-Type': 'application/json' });

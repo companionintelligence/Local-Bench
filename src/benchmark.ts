@@ -6,6 +6,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { initDatabase, saveBenchmarkResults, saveBenchmarkAggregate, saveSystemSpecs } from './database';
 import { getSystemSpecs, formatSystemSpecs } from './systemSpecs';
+import { DRIVER_DESCRIPTORS, DriverType, Seat, TimingSource, UnknownDriverError, parseDriverType, resolveDriverFromEnv, wireOf } from './drivers';
+import { arrivalOffsetsMs, buildDepthPrompt, goodputFraction, interTokenLatencyMs, parseContextDepth, SloTargets } from './measure';
+import { Summary, summarize } from './stats';
 
 // Configuration
 // The target base URL is read from env at call time; see getConfiguredBaseUrl().
@@ -341,6 +344,24 @@ export interface BenchmarkResult {
   concurrency?: number;
   /** Shared by all rows of one concurrent batch. */
   batchId?: string;
+  /** The driver that produced the row (drivers.ts). */
+  driver?: DriverType;
+  /** 'app' for HTTP drivers; 'engine-native' for llama-bench. The two are never averaged together. */
+  seat?: Seat;
+  /** Whose clock produced the speed numbers: the engine's own timings, or this client's. */
+  timingSource?: TimingSource;
+  /** Requested context depth in tokens (0 for none). The prompt really sent is in `prompt`. */
+  contextDepth?: number;
+  /** The context window the engine reports at runtime (llama.cpp's /props n_ctx). */
+  contextWindow?: number;
+  /** Prompt processing speed: the engine's figure when it reports one, else promptTokens / TTFT. */
+  promptTokensPerSecond?: number;
+  /** True for a model's first request on a target, or a request that loaded the model. */
+  cold?: boolean;
+  /** Which repetition of a repeated run the row belongs to, counted from 0. */
+  repeatIndex?: number;
+  /** 'burst' for a concurrent batch; 'constant' or 'poisson' for load profiles. */
+  profile?: MeasurementProfile;
 }
 
 export interface BenchmarkAggregate {
@@ -358,12 +379,16 @@ export interface BenchmarkAggregate {
   failures: number;
 }
 
+export type MeasurementProfile = 'burst' | 'constant' | 'poisson';
 export type Transport = 'ollama' | 'openai';
 export type TargetPath = 'direct' | 'pool';
 
 export interface ResolvedTarget {
   url: string;
+  /** The wire protocol used to talk to the target. */
   transport: Transport;
+  /** The engine driver (drivers.ts). */
+  driver: DriverType;
   path: TargetPath;
 }
 
@@ -374,6 +399,12 @@ export interface BenchmarkOptions {
   concurrency?: never;
   /** Clock for wall-time measurements; injectable for tests. Defaults to Date.now. */
   now?: () => number;
+  /** Use this driver rather than detecting one from the target. */
+  driver?: DriverType;
+  /** Prefill this many tokens of context before the question (0 = none). */
+  contextDepth?: number;
+  /** Repetition index recorded on each row; set by benchmarkRepeated. */
+  repeatIndex?: number;
 }
 
 interface OllamaModel {
@@ -411,6 +442,15 @@ interface PoolHeaders {
   requestId?: string;
 }
 
+/** Timings an engine reports about its own run (llama.cpp's `timings` block). */
+interface EngineTimings {
+  source: 'llamacpp';
+  promptPerSecond?: number;
+  predictedPerSecond?: number;
+  promptTokens?: number;
+  predictedTokens?: number;
+}
+
 /** What one request produced, independent of transport. */
 interface RunOutcome {
   responseText: string;
@@ -422,6 +462,8 @@ interface RunOutcome {
   evalMs?: number;
   evalCount?: number;
   evalDurationNs?: number;
+  /** The engine's own timings when it reports them (llama.cpp). */
+  engineTimings?: EngineTimings;
   headers: PoolHeaders;
 }
 
@@ -451,8 +493,9 @@ export function normaliseBaseUrl(raw: string): string {
  * contract), then CI_LLM_BASE_URL (what the Hub injects into every app env), then
  * the Ollama default.
  */
-export function getConfiguredBaseUrl(): string {
-  const raw = process.env.OLLAMA_API_URL || process.env.CI_LLM_BASE_URL || 'http://localhost:11434';
+export function getConfiguredBaseUrl(driver?: DriverType): string {
+  const fallback = (driver && DRIVER_DESCRIPTORS[driver].defaultBaseUrl) || 'http://localhost:11434';
+  const raw = process.env.OLLAMA_API_URL || process.env.CI_LLM_BASE_URL || fallback;
   return normaliseBaseUrl(raw);
 }
 
@@ -466,10 +509,18 @@ function authHeaders(): Record<string, string> {
 }
 
 const transportCache = new Map<string, Transport>();
+const llamaCppCache = new Map<string, boolean>();
+/** The runtime context window llama-server reports on /props (default_generation_settings.n_ctx). */
+const llamaCppWindows = new Map<string, number>();
+/** Model and target pairs already requested in this process. The first request to one is cold. */
+const seenModelTargets = new Set<string>();
 
 /** Forget probed transports (tests, or after the target URL changes at runtime). */
 export function resetTargetCache(): void {
   transportCache.clear();
+  llamaCppCache.clear();
+  llamaCppWindows.clear();
+  seenModelTargets.clear();
 }
 
 /**
@@ -503,11 +554,56 @@ export async function detectTransport(url: string): Promise<Transport> {
   return transport;
 }
 
-/** Resolve env into the target every runner hits. */
-export async function resolveTarget(): Promise<ResolvedTarget> {
-  const url = getConfiguredBaseUrl();
+/**
+ * Resolve the target every runner hits. An explicit driver (the option, or BENCH_DRIVER or
+ * BENCH_TRANSPORT) is used as given. Otherwise the engine is detected: Ollama when /api/tags
+ * answers, llama.cpp when /props answers, and the generic OpenAI driver otherwise.
+ */
+export async function resolveTarget(options: { driver?: DriverType } = {}): Promise<ResolvedTarget> {
+  const explicit = options.driver ?? resolveDriverFromEnv();
+  const url = getConfiguredBaseUrl(explicit);
+  const path: TargetPath = isPoolUrl(url) ? 'pool' : 'direct';
+  if (explicit) {
+    if (wireOf(explicit) === 'cli') {
+      throw new UnknownDriverError(`${explicit} runs a local binary, not an endpoint.`);
+    }
+    if (explicit === 'llamacpp') {
+      await probeLlamaCpp(url);
+    }
+    return { url, transport: wireOf(explicit) === 'ollama' ? 'ollama' : 'openai', driver: explicit, path };
+  }
   const transport = await detectTransport(url);
-  return { url, transport, path: isPoolUrl(url) ? 'pool' : 'direct' };
+  if (transport === 'ollama') {
+    return { url, transport, driver: 'ollama', path };
+  }
+  const llamaCpp = await probeLlamaCpp(url);
+  return { url, transport, driver: llamaCpp ? 'llamacpp' : 'openai', path };
+}
+
+/**
+ * True when the base answers GET /props with llama-server's settings object. Cached per URL.
+ * A connection failure is not cached, for the same reason detectTransport retries those.
+ */
+async function probeLlamaCpp(url: string): Promise<boolean> {
+  const cached = llamaCppCache.get(url);
+  if (cached !== undefined) {
+    return cached;
+  }
+  try {
+    const response = await axios.get(`${url}/props`, { timeout: PROBE_TIMEOUT_MS, headers: authHeaders() });
+    const settings = isRecord(response.data) ? response.data.default_generation_settings : undefined;
+    const isLlamaCpp = isRecord(settings);
+    llamaCppCache.set(url, isLlamaCpp);
+    if (isRecord(settings) && typeof settings.n_ctx === 'number') {
+      llamaCppWindows.set(url, settings.n_ctx);
+    }
+    return isLlamaCpp;
+  } catch (error) {
+    if ((error as any)?.response) {
+      llamaCppCache.set(url, false);
+    }
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -591,6 +687,27 @@ async function* readLines(stream: AsyncIterable<Buffer | string>): AsyncGenerato
   if (buffer.length > 0) {
     yield buffer;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * llama.cpp's `timings` block: on the top level of a streamed chunk, or of a non-streamed body.
+ * Undefined when the response carries none, so other engines are unaffected.
+ */
+function llamaCppTimings(data: unknown): EngineTimings | undefined {
+  const timings = isRecord(data) ? data.timings : undefined;
+  if (!isRecord(timings)) {
+    return undefined;
+  }
+  const out: EngineTimings = { source: 'llamacpp' };
+  if (typeof timings.prompt_per_second === 'number') out.promptPerSecond = timings.prompt_per_second;
+  if (typeof timings.predicted_per_second === 'number') out.predictedPerSecond = timings.predicted_per_second;
+  if (typeof timings.prompt_n === 'number') out.promptTokens = timings.prompt_n;
+  if (typeof timings.predicted_n === 'number') out.predictedTokens = timings.predicted_n;
+  return out.promptPerSecond === undefined && out.predictedPerSecond === undefined ? undefined : out;
 }
 
 function ollamaTimings(data: OllamaGenerateResponse): Partial<RunOutcome> {
@@ -684,6 +801,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
       responseText: data.choices?.[0]?.message?.content || '',
       totalTokens: usage.completion_tokens || 0,
       promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+      engineTimings: llamaCppTimings(data),
       headers: readPoolHeaders(response.headers)
     };
   };
@@ -711,6 +829,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
   let ttftMs: number | undefined;
   let usage: OpenAIUsage | undefined;
   let contentDeltas = 0;
+  let engineTimings: EngineTimings | undefined;
   for await (const line of readLines(response.data)) {
     const parsed = parseSseLine(line);
     if (!parsed) continue;
@@ -730,6 +849,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
     if (chunk.usage) {
       usage = chunk.usage;
     }
+    engineTimings = llamaCppTimings(chunk) ?? engineTimings;
   }
 
   // Servers that ignore stream_options never send usage. Each content delta is one
@@ -741,6 +861,7 @@ async function runOpenAI(target: ResolvedTarget, model: string, prompt: string, 
     totalTokens,
     promptTokens: typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
     ttftMs,
+    engineTimings,
     headers: readPoolHeaders(response.headers)
   };
 }
@@ -753,7 +874,10 @@ function round(value: number, places: number): number {
  * Engine decode speed. Ollama's eval timings measure generation alone; without them,
  * subtract TTFT from the wall clock so prompt processing is not charged to decoding.
  */
-export function computeDecodeTokensPerSecond(row: { totalTokens: number; durationSeconds: number; ttftMs?: number; evalCount?: number; evalDurationNs?: number }, streaming: boolean): number | undefined {
+export function computeDecodeTokensPerSecond(row: { totalTokens: number; durationSeconds: number; ttftMs?: number; evalCount?: number; evalDurationNs?: number; predictedPerSecond?: number }, streaming: boolean): number | undefined {
+  if (typeof row.predictedPerSecond === 'number' && row.predictedPerSecond > 0) {
+    return row.predictedPerSecond;
+  }
   if (typeof row.evalCount === 'number' && typeof row.evalDurationNs === 'number' && row.evalDurationNs > 0) {
     return row.evalCount / (row.evalDurationNs / 1e9);
   }
@@ -773,29 +897,69 @@ interface SingleRunContext {
   concurrency: number;
   batchId: string;
   quiet?: boolean;
+  contextDepth?: number;
+  repeatIndex?: number;
+  profile?: MeasurementProfile;
+}
+
+/**
+ * Prompt processing speed: the engine's own figure when it reports one, else the prompt
+ * token count over the time to first token (which includes the network round trip).
+ */
+function promptTokensPerSecond(outcome: RunOutcome): number | undefined {
+  if (outcome.engineTimings?.promptPerSecond !== undefined) {
+    return outcome.engineTimings.promptPerSecond;
+  }
+  if (typeof outcome.promptEvalMs === 'number' && outcome.promptEvalMs > 0 && typeof outcome.promptTokens === 'number') {
+    return outcome.promptTokens / (outcome.promptEvalMs / 1000);
+  }
+  if (typeof outcome.ttftMs === 'number' && outcome.ttftMs > 0 && typeof outcome.promptTokens === 'number') {
+    return outcome.promptTokens / (outcome.ttftMs / 1000);
+  }
+  return undefined;
 }
 
 async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunContext): Promise<BenchmarkResult> {
   const { target, stream, now } = ctx;
-  const base: Pick<BenchmarkResult, 'model' | 'transport' | 'path' | 'targetUrl' | 'concurrency' | 'batchId' | 'prompt'> = {
+  const contextDepth = ctx.contextDepth ?? 0;
+  const requestPrompt = buildDepthPrompt(promptToUse, contextDepth);
+  // The first request to a model on a target is cold. Recorded before any await, so the
+  // first request of a concurrent batch is the one marked.
+  const key = `${target.url}|${modelName}`;
+  const firstRequest = !seenModelTargets.has(key);
+  seenModelTargets.add(key);
+
+  const base: Pick<BenchmarkResult, 'model' | 'transport' | 'path' | 'targetUrl' | 'concurrency' | 'batchId' | 'prompt' | 'driver' | 'seat' | 'contextDepth' | 'contextWindow' | 'repeatIndex' | 'profile'> = {
     model: modelName,
     transport: target.transport,
     path: target.path,
     targetUrl: target.url,
     concurrency: ctx.concurrency,
     batchId: ctx.batchId,
-    prompt: promptToUse
+    prompt: requestPrompt,
+    driver: target.driver,
+    seat: 'app',
+    contextDepth,
+    contextWindow: target.driver === 'llamacpp' ? llamaCppWindows.get(target.url) : undefined,
+    repeatIndex: ctx.repeatIndex,
+    profile: ctx.profile ?? 'burst'
   };
 
   try {
     const startTime = now();
     const outcome = target.transport === 'openai'
-      ? await runOpenAI(target, modelName, promptToUse, stream, now, startTime)
-      : await runOllama(target, modelName, promptToUse, stream, now, startTime);
+      ? await runOpenAI(target, modelName, requestPrompt, stream, now, startTime)
+      : await runOllama(target, modelName, requestPrompt, stream, now, startTime);
     const durationSeconds = (now() - startTime) / 1000;
     const tokensPerSecond = durationSeconds > 0 ? outcome.totalTokens / durationSeconds : 0;
-    const decode = computeDecodeTokensPerSecond({ ...outcome, durationSeconds }, stream);
+    const decode = computeDecodeTokensPerSecond(
+      { ...outcome, durationSeconds, predictedPerSecond: outcome.engineTimings?.predictedPerSecond },
+      stream
+    );
+    const promptRate = promptTokensPerSecond(outcome);
     const path: TargetPath = target.path === 'pool' || outcome.headers.servedBy ? 'pool' : 'direct';
+    const cold = firstRequest || (outcome.loadMs ?? 0) > 0;
+    const timingSource: TimingSource = outcome.engineTimings ? 'llamacpp' : target.transport === 'ollama' ? 'ollama' : 'client';
 
     if (!ctx.quiet) {
       console.log(`  ✓ ${modelName}: ${durationSeconds.toFixed(2)}s, ${outcome.totalTokens} tokens, ${tokensPerSecond.toFixed(2)} tokens/second`);
@@ -818,7 +982,10 @@ async function runSingle(modelName: string, promptToUse: string, ctx: SingleRunC
       loadMs: outcome.loadMs === undefined ? undefined : round(outcome.loadMs, 2),
       promptEvalMs: outcome.promptEvalMs === undefined ? undefined : round(outcome.promptEvalMs, 2),
       evalMs: outcome.evalMs === undefined ? undefined : round(outcome.evalMs, 2),
-      decodeTokensPerSecond: decode === undefined ? undefined : round(decode, 2)
+      decodeTokensPerSecond: decode === undefined ? undefined : round(decode, 2),
+      promptTokensPerSecond: promptRate === undefined ? undefined : round(promptRate, 2),
+      timingSource,
+      cold
     };
   } catch (error) {
     const message = (error as Error).message;
@@ -856,13 +1023,16 @@ export async function checkModelAvailable(modelName: string): Promise<boolean> {
 export async function benchmarkModel(modelName: string, customPrompt?: string, options: BenchmarkOptions = {}): Promise<BenchmarkResult> {
   const promptToUse = customPrompt || DEFAULT_PROMPT;
   console.log(`\nBenchmarking ${modelName}...`);
-  const target = await resolveTarget();
+  const target = await resolveTarget({ driver: options.driver });
   return runSingle(modelName, promptToUse, {
     target,
     stream: options.stream !== false,
     now: options.now || Date.now,
     concurrency: 1,
-    batchId: randomUUID()
+    batchId: randomUUID(),
+    contextDepth: options.contextDepth,
+    repeatIndex: options.repeatIndex,
+    profile: 'burst'
   });
 }
 
@@ -928,13 +1098,16 @@ export async function benchmarkModelConcurrently(
   const promptToUse = customPrompt || DEFAULT_PROMPT;
   const n = clampConcurrency(concurrency);
   const now = options.now || Date.now;
-  const target = await resolveTarget();
+  const target = await resolveTarget({ driver: options.driver });
   const ctx: SingleRunContext = {
     target,
     stream: options.stream !== false,
     now,
     concurrency: n,
-    batchId: randomUUID()
+    batchId: randomUUID(),
+    contextDepth: options.contextDepth,
+    repeatIndex: options.repeatIndex,
+    profile: 'burst'
   };
 
   console.log(`\nBenchmarking ${modelName} (${n} concurrent, ${ctx.stream ? 'streaming' : 'non-streaming'}, ${target.transport} → ${target.url})...`);
@@ -944,6 +1117,184 @@ export async function benchmarkModelConcurrently(
   return { results, aggregate: computeAggregate(results, wallSeconds) };
 }
 
+
+export const MAX_REPETITIONS = 50;
+
+/** A whole number of repetitions from 1 to MAX_REPETITIONS; anything else is 1. */
+export function clampRepetitions(value: unknown): number {
+  const n = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(n) || n < 1) {
+    return 1;
+  }
+  return Math.min(Math.floor(n), MAX_REPETITIONS);
+}
+
+export interface RepeatedRun {
+  results: BenchmarkResult[];
+  aggregates: BenchmarkAggregate[];
+  /** Spread across the repetitions, from successful rows only. */
+  summary: {
+    tokensPerSecond?: Summary;
+    decodeTokensPerSecond?: Summary;
+    promptTokensPerSecond?: Summary;
+    ttftMs?: Summary;
+  };
+}
+
+/** One concurrent batch per repetition, then the spread across the repetitions. */
+export async function benchmarkRepeated(
+  modelName: string,
+  customPrompt: string | undefined,
+  repetitions: number,
+  concurrency: number,
+  options: Omit<BenchmarkOptions, 'concurrency'> = {}
+): Promise<RepeatedRun> {
+  const results: BenchmarkResult[] = [];
+  const aggregates: BenchmarkAggregate[] = [];
+  const count = clampRepetitions(repetitions);
+  for (let i = 0; i < count; i++) {
+    const batch = await benchmarkModelConcurrently(modelName, customPrompt, concurrency, { ...options, repeatIndex: i });
+    results.push(...batch.results);
+    aggregates.push(batch.aggregate);
+  }
+  const ok = results.filter(row => row.success);
+  const values = (pick: (row: BenchmarkResult) => number | undefined): number[] =>
+    ok.map(pick).filter((value): value is number => typeof value === 'number');
+  return {
+    results,
+    aggregates,
+    summary: {
+      tokensPerSecond: summarize(values(row => row.tokensPerSecond)),
+      decodeTokensPerSecond: summarize(values(row => row.decodeTokensPerSecond)),
+      promptTokensPerSecond: summarize(values(row => row.promptTokensPerSecond)),
+      ttftMs: summarize(values(row => row.ttftMs))
+    }
+  };
+}
+
+export interface LoadProfileOptions extends Omit<BenchmarkOptions, 'concurrency'> {
+  profile: 'constant' | 'poisson';
+  /** Requests per second. */
+  rate: number;
+  durationSeconds: number;
+  /** Seeds the Poisson schedule so a run can be repeated exactly. */
+  seed?: number;
+  slo?: SloTargets;
+  /** Waiting between arrivals; injectable so tests need no real time. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface LoadProfileRun {
+  profile: 'constant' | 'poisson';
+  rate: number;
+  durationSeconds: number;
+  results: BenchmarkResult[];
+  requests: number;
+  successes: number;
+  failures: number;
+  wallSeconds: number;
+  /** Successful requests per wall-clock second. */
+  completedPerSecond: number;
+  ttftMs?: Summary;
+  interTokenMs?: Summary;
+  /** Share of requests that met the SLO. Undefined when no SLO was given. */
+  goodput?: number;
+  slo?: SloTargets;
+}
+
+const defaultSleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Send single requests on a schedule (constant or Poisson arrivals) for a duration, then
+ * summarise the latency distributions and the share of requests that met the SLO.
+ */
+export async function runLoadProfile(
+  modelName: string,
+  customPrompt: string | undefined,
+  options: LoadProfileOptions
+): Promise<LoadProfileRun> {
+  const promptToUse = customPrompt || DEFAULT_PROMPT;
+  const now = options.now || Date.now;
+  const sleep = options.sleep || defaultSleep;
+  const target = await resolveTarget({ driver: options.driver });
+  const offsets = arrivalOffsetsMs({
+    profile: options.profile,
+    rate: options.rate,
+    durationSeconds: options.durationSeconds,
+    seed: options.seed
+  });
+  const ctx: SingleRunContext = {
+    target,
+    stream: options.stream !== false,
+    now,
+    concurrency: 1,
+    batchId: randomUUID(),
+    contextDepth: options.contextDepth,
+    profile: options.profile,
+    quiet: true
+  };
+
+  console.log(`\n${options.profile} load on ${modelName}: ${offsets.length} requests at ${options.rate}/s for ${options.durationSeconds}s (${target.driver} → ${target.url})...`);
+  const start = now();
+  const results = await Promise.all(offsets.map(async offset => {
+    const wait = start + offset - now();
+    if (wait > 0) {
+      await sleep(wait);
+    }
+    return runSingle(modelName, promptToUse, ctx);
+  }));
+  const wallSeconds = (now() - start) / 1000;
+
+  const ok = results.filter(row => row.success);
+  const present = (values: Array<number | undefined>): number[] =>
+    values.filter((value): value is number => typeof value === 'number');
+  return {
+    profile: options.profile,
+    rate: options.rate,
+    durationSeconds: options.durationSeconds,
+    results,
+    requests: results.length,
+    successes: ok.length,
+    failures: results.length - ok.length,
+    wallSeconds: round(wallSeconds, 2),
+    completedPerSecond: wallSeconds > 0 ? round(ok.length / wallSeconds, 2) : 0,
+    ttftMs: summarize(present(ok.map(row => row.ttftMs))),
+    interTokenMs: summarize(present(ok.map(row => interTokenLatencyMs(row)))),
+    goodput: options.slo ? goodputFraction(results, options.slo) : undefined,
+    slo: options.slo
+  };
+}
+
+export interface SweepRun {
+  runs: LoadProfileRun[];
+  /** The first rate that broke the SLO or failed requests, when one did. */
+  saturatedAt?: number;
+}
+
+/**
+ * Step through request rates with constant arrivals and stop at saturation: the first rate
+ * where more than 5% of requests fail, or where the p90 TTFT breaks the TTFT target.
+ */
+export async function runSweep(
+  modelName: string,
+  customPrompt: string | undefined,
+  options: Omit<LoadProfileOptions, 'rate'> & { rates: number[] }
+): Promise<SweepRun> {
+  const { rates, ...base } = options;
+  const runs: LoadProfileRun[] = [];
+  let saturatedAt: number | undefined;
+  for (const rate of rates) {
+    const run = await runLoadProfile(modelName, customPrompt, { ...base, rate });
+    runs.push(run);
+    const failing = run.requests > 0 && run.failures / run.requests > 0.05;
+    const slow = base.slo?.ttftMs !== undefined && run.ttftMs !== undefined && run.ttftMs.p90 > base.slo.ttftMs;
+    if (failing || slow) {
+      saturatedAt = rate;
+      break;
+    }
+  }
+  return { runs, saturatedAt };
+}
 
 /**
  * Save results to CSV file (for backward compatibility)
@@ -1000,23 +1351,130 @@ export interface CliArgs {
   models: string[];
   concurrency: number;
   stream: boolean;
+  driver?: DriverType;
+  /** Context depths in tokens. One set of runs per depth. */
+  depths: number[];
+  repetitions: number;
+  profile: MeasurementProfile | 'sweep';
+  rate?: number;
+  rates?: number[];
+  durationSeconds: number;
+  seed?: number;
+  slo: SloTargets;
 }
 
-/** `--concurrency=N` and `--no-stream` are flags; everything else is a model name. */
+function positiveNumber(value: string, flag: string): number {
+  const n = Number(value);
+  if (value.trim() === '' || !Number.isFinite(n) || n <= 0) {
+    throw new Error(`${flag} must be a number above zero, got "${value}"`);
+  }
+  return n;
+}
+
+function numberList(value: string, flag: string): string[] {
+  const parts = value.split(',').map(part => part.trim()).filter(part => part !== '');
+  if (parts.length === 0) {
+    throw new Error(`${flag} needs at least one value`);
+  }
+  return parts;
+}
+
+/**
+ * Command-line options. `--concurrency=N`, `--no-stream` and the measurement flags are
+ * recognised; anything else is a model name. Invalid values throw, so a typo fails the
+ * run instead of quietly measuring the default.
+ */
 export function parseCliArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { models: [], concurrency: 1, stream: true };
+  const args: CliArgs = {
+    models: [],
+    concurrency: 1,
+    stream: true,
+    depths: [0],
+    repetitions: 1,
+    profile: 'burst',
+    durationSeconds: 30,
+    slo: {}
+  };
   for (const arg of argv) {
+    const value = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : '';
     if (arg === '--no-stream') {
       args.stream = false;
     } else if (arg.startsWith('--concurrency=')) {
-      args.concurrency = clampConcurrency(arg.slice('--concurrency='.length));
+      args.concurrency = clampConcurrency(value);
+    } else if (arg.startsWith('--driver=')) {
+      const driver = parseDriverType(value);
+      if (driver === 'llama-bench') {
+        throw new Error('llama-bench runs a local binary, not an endpoint. Use npm run strix-halo for it.');
+      }
+      args.driver = driver;
+    } else if (arg.startsWith('--depth=')) {
+      args.depths = numberList(value, '--depth').map(part => {
+        const depth = parseContextDepth(Number(part));
+        if (depth === undefined) {
+          throw new Error(`--depth values must be whole numbers from 0 to 32768, got "${part}"`);
+        }
+        return depth;
+      });
+    } else if (arg.startsWith('--repetitions=')) {
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > MAX_REPETITIONS) {
+        throw new Error(`--repetitions must be a whole number from 1 to ${MAX_REPETITIONS}, got "${value}"`);
+      }
+      args.repetitions = n;
+    } else if (arg.startsWith('--profile=')) {
+      if (!['burst', 'constant', 'poisson', 'sweep'].includes(value)) {
+        throw new Error(`--profile must be burst, constant, poisson or sweep, got "${value}"`);
+      }
+      args.profile = value as CliArgs['profile'];
+    } else if (arg.startsWith('--rate=')) {
+      args.rate = positiveNumber(value, '--rate');
+    } else if (arg.startsWith('--rates=')) {
+      args.rates = numberList(value, '--rates').map(part => positiveNumber(part, '--rates'));
+    } else if (arg.startsWith('--duration=')) {
+      args.durationSeconds = positiveNumber(value, '--duration');
+    } else if (arg.startsWith('--seed=')) {
+      const n = Number(value);
+      if (!Number.isInteger(n)) {
+        throw new Error(`--seed must be a whole number, got "${value}"`);
+      }
+      args.seed = n;
+    } else if (arg.startsWith('--ttft-slo=')) {
+      args.slo.ttftMs = positiveNumber(value, '--ttft-slo');
+    } else if (arg.startsWith('--itl-slo=')) {
+      args.slo.itlMs = positiveNumber(value, '--itl-slo');
     } else if (arg.startsWith('--')) {
       console.error(`Ignoring unknown flag ${arg}`);
     } else {
       args.models.push(arg);
     }
   }
+  if ((args.profile === 'constant' || args.profile === 'poisson') && args.rate === undefined) {
+    throw new Error(`--profile=${args.profile} needs --rate=<requests per second>`);
+  }
+  if (args.profile === 'sweep' && (args.rates === undefined || args.rates.length === 0)) {
+    throw new Error('--profile=sweep needs --rates=<a,b,c>');
+  }
   return args;
+}
+
+function formatLoadRun(run: LoadProfileRun): string {
+  const parts = [
+    `${run.profile} ${run.rate}/s: ${run.requests} sent, ${run.successes} ok`,
+    `${run.completedPerSecond} completed/s`,
+    run.ttftMs ? `TTFT p50 ${round(run.ttftMs.p50, 1)}ms, p90 ${round(run.ttftMs.p90, 1)}ms, p99 ${round(run.ttftMs.p99, 1)}ms` : undefined,
+    run.interTokenMs ? `inter-token p50 ${round(run.interTokenMs.p50, 1)}ms, p90 ${round(run.interTokenMs.p90, 1)}ms` : undefined,
+    run.goodput !== undefined ? `goodput ${round(run.goodput * 100, 1)}%` : undefined
+  ].filter(Boolean);
+  return parts.join(', ');
+}
+
+function formatRepeats(summary: Summary | undefined, repetitions: number): string {
+  if (!summary) {
+    return `repeated ×${repetitions}: no successful runs`;
+  }
+  const spread = summary.stddev !== undefined ? ` ± ${round(summary.stddev, 2)}` : '';
+  const interval = summary.ci95 ? `, 95% CI ${round(summary.ci95.low, 2)} to ${round(summary.ci95.high, 2)}` : '';
+  return `repeated ×${repetitions}: median ${round(summary.median, 2)} tokens/second (mean ${round(summary.mean, 2)}${spread}${interval})`;
 }
 
 function formatRow(r: BenchmarkResult): string {
@@ -1049,17 +1507,23 @@ function formatAggregate(a: BenchmarkAggregate): string {
  */
 async function main(): Promise<void> {
   console.log('=== Local LLM Benchmark Tool ===');
-  const args = parseCliArgs(process.argv.slice(2));
+  let args: CliArgs;
+  try {
+    args = parseCliArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(`✗ ${(error as Error).message}`);
+    process.exit(2);
+  }
   const modelsToTest = args.models.length > 0 ? args.models : DEFAULT_MODELS;
 
   // Check the target answers before spending two minutes per model on it
   let target: ResolvedTarget;
   try {
-    target = await resolveTarget();
+    target = await resolveTarget({ driver: args.driver });
     if (target.transport === 'openai') {
       await axios.get(`${target.url}/v1/models`, { timeout: PROBE_TIMEOUT_MS, headers: authHeaders() });
     }
-    console.log(`Target: ${target.url} (${target.transport}, ${target.path})`);
+    console.log(`Target: ${target.url} (${target.driver}, ${target.path})`);
     console.log(`✓ Connected to ${target.transport === 'ollama' ? 'Ollama' : 'OpenAI-compatible'} API`);
   } catch (error) {
     console.error('✗ Cannot connect to the inference API. Set OLLAMA_API_URL or CI_LLM_BASE_URL and make sure it is running.');
@@ -1068,21 +1532,68 @@ async function main(): Promise<void> {
   }
 
   console.log(`\nModels to benchmark: ${modelsToTest.join(', ')}`);
-  console.log(`Concurrency: ${args.concurrency}, streaming: ${args.stream ? 'on' : 'off'}`);
+  console.log(`Profile: ${args.profile}, concurrency ${args.concurrency}, depths ${args.depths.join(', ')}, repetitions ${args.repetitions}, streaming: ${args.stream ? 'on' : 'off'}`);
 
-  // Run benchmarks
   const results: BenchmarkResult[] = [];
   const aggregates: BenchmarkAggregate[] = [];
   for (const model of modelsToTest) {
-    const batch = await benchmarkModelConcurrently(model, undefined, args.concurrency, { stream: args.stream });
-    results.push(...batch.results);
-    aggregates.push(batch.aggregate);
-    for (const row of batch.results) {
-      if (row.success) {
-        console.log(`    ${formatRow(row)}`);
+    if (args.profile === 'burst') {
+      for (const depth of args.depths) {
+        const run = await benchmarkRepeated(model, undefined, args.repetitions, args.concurrency, {
+          stream: args.stream,
+          driver: args.driver,
+          contextDepth: depth
+        });
+        results.push(...run.results);
+        aggregates.push(...run.aggregates);
+        for (const row of run.results) {
+          if (row.success) {
+            console.log(`    ${formatRow(row)}`);
+          }
+        }
+        for (const aggregate of run.aggregates) {
+          console.log(`  = ${formatAggregate(aggregate)}`);
+        }
+        if (args.repetitions > 1) {
+          console.log(`  = ${formatRepeats(run.summary.tokensPerSecond, args.repetitions)}`);
+        }
+      }
+    } else if (args.profile === 'sweep') {
+      for (const depth of args.depths) {
+        const sweep = await runSweep(model, undefined, {
+          profile: 'constant',
+          durationSeconds: args.durationSeconds,
+          seed: args.seed,
+          slo: args.slo,
+          stream: args.stream,
+          driver: args.driver,
+          contextDepth: depth,
+          rates: args.rates ?? []
+        });
+        for (const run of sweep.runs) {
+          results.push(...run.results);
+          console.log(`  ${formatLoadRun(run)}`);
+        }
+        if (sweep.saturatedAt !== undefined) {
+          console.log(`  saturated at ${sweep.saturatedAt} requests/second`);
+        }
+      }
+    } else {
+      for (const depth of args.depths) {
+        const run = await runLoadProfile(model, undefined, {
+          profile: args.profile,
+          rate: args.rate as number,
+          durationSeconds: args.durationSeconds,
+          seed: args.seed,
+          slo: args.slo,
+          stream: args.stream,
+          driver: args.driver,
+          contextDepth: depth
+        });
+        results.push(...run.results);
+        console.log(`  ${formatLoadRun(run)}`);
       }
     }
-    console.log(`  = ${formatAggregate(batch.aggregate)}`);
   }
 
   // Save results

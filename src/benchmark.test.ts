@@ -788,9 +788,9 @@ describe('Benchmark Module', () => {
 
     it('reports path=pool when the URL is a Hub pool proxy', async () => {
       process.env.OLLAMA_API_URL = 'http://100.115.174.32:5002/api/inference/pool';
-      expect(await resolveTarget()).toEqual({ url: 'http://100.115.174.32:5002/api/inference/pool', transport: 'ollama', path: 'pool' });
+      expect(await resolveTarget()).toEqual({ url: 'http://100.115.174.32:5002/api/inference/pool', transport: 'ollama', driver: 'ollama', path: 'pool' });
       process.env.OLLAMA_API_URL = 'http://localhost:11434';
-      expect(await resolveTarget()).toEqual({ url: 'http://localhost:11434', transport: 'ollama', path: 'direct' });
+      expect(await resolveTarget()).toEqual({ url: 'http://localhost:11434', transport: 'ollama', driver: 'ollama', path: 'direct' });
     });
 
     it('sends CI_LLM_API_KEY as a bearer token', async () => {
@@ -1213,12 +1213,12 @@ describe('Benchmark Module', () => {
 
   describe('parseCliArgs', () => {
     it('separates flags from model names', () => {
-      expect(parseCliArgs(['qwen3:8b', '--concurrency=4', 'gemma3:4b', '--no-stream'])).toEqual({
+      expect(parseCliArgs(['qwen3:8b', '--concurrency=4', 'gemma3:4b', '--no-stream'])).toMatchObject({
         models: ['qwen3:8b', 'gemma3:4b'],
         concurrency: 4,
         stream: false
       });
-      expect(parseCliArgs([])).toEqual({ models: [], concurrency: 1, stream: true });
+      expect(parseCliArgs([])).toMatchObject({ models: [], concurrency: 1, stream: true, depths: [0], repetitions: 1, profile: 'burst' });
       expect(parseCliArgs(['--concurrency=100']).concurrency).toBe(16);
       expect(parseCliArgs(['--concurrency=abc']).concurrency).toBe(1);
     });

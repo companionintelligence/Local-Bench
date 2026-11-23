@@ -81,7 +81,16 @@ const BENCHMARK_RESULT_COLUMNS: ReadonlyArray<[column: string, type: string]> = 
   ['eval_ms', 'REAL'],
   ['decode_tokens_per_second', 'REAL'],
   ['concurrency', 'INTEGER'],
-  ['batch_id', 'TEXT']
+  ['batch_id', 'TEXT'],
+  ['driver', 'TEXT'],
+  ['seat', 'TEXT'],
+  ['timing_source', 'TEXT'],
+  ['context_depth', 'INTEGER'],
+  ['context_window', 'INTEGER'],
+  ['cold', 'INTEGER'],
+  ['repeat_index', 'INTEGER'],
+  ['profile', 'TEXT'],
+  ['prompt_tokens_per_second', 'REAL']
 ];
 
 /**
@@ -276,8 +285,10 @@ export function saveBenchmarkResults(results: BenchmarkResultRecord[], systemSpe
       timestamp, success, error, system_specs_id,
       transport, path, target_url, served_by, backend, request_id,
       ttft_ms, prompt_tokens, load_ms, prompt_eval_ms, eval_ms,
-      decode_tokens_per_second, concurrency, batch_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      decode_tokens_per_second, concurrency, batch_id,
+      driver, seat, timing_source, context_depth, context_window,
+      cold, repeat_index, profile, prompt_tokens_per_second
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // node:sqlite has no built-in `database.transaction()` helper (unlike
@@ -307,7 +318,16 @@ export function saveBenchmarkResults(results: BenchmarkResultRecord[], systemSpe
         optNum(result.evalMs),
         optNum(result.decodeTokensPerSecond),
         optNum(result.concurrency),
-        optText(result.batchId)
+        optText(result.batchId),
+        optText(result.driver),
+        optText(result.seat),
+        optText(result.timingSource),
+        optNum(result.contextDepth),
+        optNum(result.contextWindow),
+        result.cold === undefined ? null : result.cold ? 1 : 0,
+        optNum(result.repeatIndex),
+        optText(result.profile),
+        optNum(result.promptTokensPerSecond)
       );
     }
     database.exec('COMMIT');
@@ -332,7 +352,10 @@ function benchmarkResultColumns(prefix = ''): string {
       ${p}prompt_tokens as promptTokens, ${p}load_ms as loadMs,
       ${p}prompt_eval_ms as promptEvalMs, ${p}eval_ms as evalMs,
       ${p}decode_tokens_per_second as decodeTokensPerSecond,
-      ${p}concurrency, ${p}batch_id as batchId`;
+      ${p}concurrency, ${p}batch_id as batchId,
+      ${p}driver, ${p}seat, ${p}timing_source as timingSource, ${p}context_depth as contextDepth,
+      ${p}context_window as contextWindow, ${p}cold, ${p}repeat_index as repeatIndex,
+      ${p}profile, ${p}prompt_tokens_per_second as promptTokensPerSecond`;
 }
 
 /**
@@ -484,7 +507,16 @@ function mapResultsWithSpecs(rows: any[]): Array<BenchmarkResultRecord & { syste
       evalMs: row.evalMs,
       decodeTokensPerSecond: row.decodeTokensPerSecond,
       concurrency: row.concurrency,
-      batchId: row.batchId
+      batchId: row.batchId,
+      driver: row.driver ?? undefined,
+      seat: row.seat ?? undefined,
+      timingSource: row.timingSource ?? undefined,
+      contextDepth: row.contextDepth ?? undefined,
+      contextWindow: row.contextWindow ?? undefined,
+      cold: row.cold === null || row.cold === undefined ? undefined : Boolean(row.cold),
+      repeatIndex: row.repeatIndex ?? undefined,
+      profile: row.profile ?? undefined,
+      promptTokensPerSecond: row.promptTokensPerSecond ?? undefined
     };
 
     if (row.serverName) {
