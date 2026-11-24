@@ -5,12 +5,12 @@ Every direct dependency declared in this repository's manifests — both
 each group. Transitive dependencies are not listed; resolve them with your
 package manager's own `licenses` command.
 
-**9 direct dependencies** across 2 licence groups.
+**11 direct dependencies** across 2 licence groups.
 
 | Licence    | Count |
 | ---------- | ----: |
 | MIT        |     8 |
-| Apache-2.0 |     1 |
+| Apache-2.0 |     3 |
 
 ## MIT
 
@@ -25,7 +25,9 @@ package manager's own `licenses` command.
 
 ## Apache-2.0
 
-1. [`typescript`](https://github.com/microsoft/TypeScript) `7.0.2` — dev
+1. [`@playwright/test`](https://github.com/microsoft/playwright) `1.65.1` — dev
+2. [`playwright`](https://github.com/microsoft/playwright) `1.65.1` — dev
+3. [`typescript`](https://github.com/microsoft/TypeScript) `7.0.2` — dev
 
 ---
 
